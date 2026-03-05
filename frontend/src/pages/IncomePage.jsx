@@ -56,6 +56,8 @@ export default function IncomePage() {
     doctorId: "",
     amount: "",
     paymentMethod: "cash",
+    labWork: false,
+    labCost: "",
     note: ""
   });
   const [saving, setSaving] = useState(false);
@@ -174,6 +176,7 @@ export default function IncomePage() {
       const payload = {
         doctor_id: form.doctorId ? Number(form.doctorId) : null,
         amount: Number(form.amount),
+        lab_cost: form.labWork ? Number(form.labCost || 0) : 0,
         payment_method: form.paymentMethod,
         note: form.note || undefined
       };
@@ -193,6 +196,8 @@ export default function IncomePage() {
         doctorId: "",
         amount: "",
         paymentMethod: "cash",
+        labWork: false,
+        labCost: "",
         note: ""
       });
       await loadRecords();
@@ -362,6 +367,7 @@ export default function IncomePage() {
                   <th>{t("income.table.patient")}</th>
                   <th>{t("income.table.doctor")}</th>
                   <th>{t("income.table.amount")}</th>
+                  <th>{t("income.form.lab_cost")}</th>
                   <th>{t("income.table.method")}</th>
                   <th>{t("income.table.date")}</th>
                 </tr>
@@ -374,6 +380,9 @@ export default function IncomePage() {
                     <td>{record.doctor.last_name}</td>
                     <td className="mono" style={{ color: "var(--green)" }}>
                       {record.amount.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    </td>
+                    <td className="mono" style={{ color: record.lab_cost > 0 ? "var(--red)" : "inherit" }}>
+                      {record.lab_cost > 0 ? record.lab_cost.toLocaleString(undefined, { style: "currency", currency: "CZK" }) : "-"}
                     </td>
                     <td>
                       <span className={`pill ${record.payment_method === 'cash' ? 'pill-green' : 'pill-blue'}`}>
@@ -427,6 +436,39 @@ export default function IncomePage() {
                 </div>
               </div>
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+              <input 
+                type="checkbox" 
+                id="labWork"
+                checked={form.labWork} 
+                onChange={(e) => setForm(p => ({...p, labWork: e.target.checked}))}
+                style={{ width: '18px', height: '18px' }}
+              />
+              <label htmlFor="labWork" style={{ fontSize: '14px', color: 'var(--text)', cursor: 'pointer' }}>
+                {t("income.form.lab_work")}
+              </label>
+            </div>
+
+            {form.labWork && (
+              <div className="panel" style={{ background: 'var(--bg-card)', border: '1px dashed var(--green)', padding: '12px', marginTop: '4px' }}>
+                <div className="form-label">{t("income.form.lab_cost")}</div>
+                <div className="amount-input-wrap">
+                  <span className="amount-prefix">$</span>
+                  <input 
+                    className="form-input" 
+                    type="number" 
+                    placeholder="0.00" 
+                    value={form.labCost} 
+                    onChange={(e) => setForm(p => ({...p, labCost: e.target.value}))} 
+                  />
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--subtext)', marginTop: '4px' }}>
+                  {t("income.form.lab_cost_note")}
+                </div>
+              </div>
+            )}
+
             <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }} disabled={saving}>
               {saving ? t("common.loading") : `+ ${t("income.form.submit")}`}
             </button>

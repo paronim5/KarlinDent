@@ -66,7 +66,10 @@ const resources = {
           "cash": "Cash",
           "card": "Card",
           "new_patient": "New Patient Last Name",
-          "submit": "Record Transaction"
+          "submit": "Record Transaction",
+          "lab_work": "Lab Work",
+          "lab_cost": "Lab Cost",
+          "lab_cost_note": "* Will be deducted from doctor's commission"
         },
         "table": {
           "date": "Date",
@@ -193,7 +196,10 @@ const resources = {
           "cash": "Наличные",
           "card": "Карта",
           "new_patient": "Фамилия нового пациента",
-          "submit": "Записать транзакцию"
+          "submit": "Записать транзакцию",
+          "lab_work": "Лаборатория",
+          "lab_cost": "Стоимость лаб.",
+          "lab_cost_note": "* Будет вычтено из комиссии врача"
         },
         "table": {
           "date": "Дата",

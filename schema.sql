@@ -99,6 +99,7 @@ CREATE TABLE income_records (
     patient_id      INT NOT NULL REFERENCES patients(id),
     doctor_id       INT NOT NULL REFERENCES staff(id),   -- must be role=doctor
     amount          NUMERIC(12, 2) NOT NULL,
+    lab_cost        NUMERIC(12, 2) NOT NULL DEFAULT 0,
     payment_method  VARCHAR(10) NOT NULL CHECK (payment_method IN ('cash', 'card')),
     service_date    DATE NOT NULL DEFAULT CURRENT_DATE,
     note            TEXT,

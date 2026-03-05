@@ -132,6 +132,7 @@ def list_income_records():
             SELECT ir.id,
                    ir.service_date,
                    ir.amount,
+                   ir.lab_cost,
                    ir.payment_method,
                    ir.note,
                    p.first_name,
@@ -157,15 +158,16 @@ def list_income_records():
                 "id": row[0],
                 "service_date": row[1].isoformat(),
                 "amount": float(row[2]),
-                "payment_method": row[3],
-                "note": row[4],
+                "lab_cost": float(row[3]),
+                "payment_method": row[4],
+                "note": row[5],
                 "patient": {
-                    "first_name": row[5],
-                    "last_name": row[6],
+                    "first_name": row[6],
+                    "last_name": row[7],
                 },
                 "doctor": {
-                    "first_name": row[7],
-                    "last_name": row[8],
+                    "first_name": row[8],
+                    "last_name": row[9],
                 },
             }
         )
@@ -210,6 +212,7 @@ def create_income_record():
 
     try:
         amount = validate_amount(data.get("amount"))
+        lab_cost = float(data.get("lab_cost", 0))
         payment_method = validate_payment_method(data.get("payment_method"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -262,14 +265,15 @@ def create_income_record():
         cur.execute(
             """
             INSERT INTO income_records
-                (patient_id, doctor_id, amount, payment_method, service_date, note)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (patient_id, doctor_id, amount, lab_cost, payment_method, service_date, note)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
                 resolved_patient_id,
                 doctor_id,
                 amount,
+                lab_cost,
                 payment_method,
                 service_date,
                 note,
@@ -280,7 +284,7 @@ def create_income_record():
         income_id = int(row[0])
         commission_rate = doctor_commission_rate
         if commission_rate > 0:
-            commission_amount = round(amount * commission_rate, 2)
+            commission_amount = round(amount * commission_rate - lab_cost, 2)
             cur.execute(
                 """
                 INSERT INTO salary_payments

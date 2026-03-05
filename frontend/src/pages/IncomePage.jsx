@@ -9,16 +9,18 @@ function DateRangePicker({ from, to, onChange }) {
   return (
     <div className="date-range">
       <label>
-        From
+        FROM
         <input
+          className="pixel-input"
           type="date"
           value={from}
           onChange={(event) => onChange({ from: event.target.value, to })}
         />
       </label>
       <label>
-        To
+        TO
         <input
+          className="pixel-input"
           type="date"
           value={to}
           onChange={(event) => onChange({ from, to: event.target.value })}
@@ -57,6 +59,27 @@ export default function IncomePage() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [deletingIds, setDeletingIds] = useState([]);
   const [confirmState, setConfirmState] = useState(null);
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      },
+      y: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      }
+    },
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
+      }
+    }
+  };
 
   const loadRecords = async (rangeFrom = from, rangeTo = to) => {
     setLoading(true);
@@ -243,14 +266,18 @@ export default function IncomePage() {
       labels,
       datasets: [
         {
-          label: "Total income",
+          label: "TOTAL INCOME",
           data: incomeData,
-          backgroundColor: "rgba(54, 162, 235, 0.7)"
+          backgroundColor: "rgba(0, 212, 255, 0.7)",
+          borderColor: "#00d4ff",
+          borderWidth: 2
         },
         {
-          label: "Total commission",
+          label: "TOTAL COMMISSION",
           data: commissionData,
-          backgroundColor: "rgba(75, 192, 192, 0.7)"
+          backgroundColor: "rgba(46, 204, 64, 0.7)",
+          borderColor: "#2ecc40",
+          borderWidth: 2
         }
       ]
     };
@@ -271,12 +298,8 @@ export default function IncomePage() {
       return null;
     }
     const datasets = doctorStats.doctors.map((doc, index) => {
-      const color =
-        index % 3 === 0
-          ? "rgba(54, 162, 235, 1)"
-          : index % 3 === 1
-          ? "rgba(255, 99, 132, 1)"
-          : "rgba(75, 192, 192, 1)";
+      const colors = ["#00d4ff", "#ffd700", "#2ecc40", "#e03030"];
+      const color = colors[index % colors.length];
       return {
         label: `${doc.last_name} ${doc.first_name}`,
         data: labels.map((label) => {
@@ -284,8 +307,10 @@ export default function IncomePage() {
           return item ? item.total_income : 0;
         }),
         borderColor: color,
-        backgroundColor: color,
-        tension: 0.2
+        backgroundColor: color + "33",
+        tension: 0.2,
+        borderWidth: 3,
+        pointRadius: 4
       };
     });
     return { labels, datasets };
@@ -312,449 +337,99 @@ export default function IncomePage() {
   }, [doctorStats]);
 
   return (
-    <div className="page page-income">
-      <h1>Income</h1>
-      {error && <div className="form-error">{error}</div>}
-      <section className="card">
-        <h2>Record patient payment</h2>
-        <form className="grid grid-3" onSubmit={handleSubmit}>
-          <div className="field-group">
-            <label>
-              Search patient
-              <input
-                type="text"
-                value={patientQuery}
-                onChange={handlePatientSearchChange}
-                placeholder="Type name"
-              />
-            </label>
-            <label>
-              Select existing patient
-              <select
-                value={form.patientId}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, patientId: event.target.value }))
-                }
-              >
-                <option value="">New patient</option>
-                {patients.map((patient) => (
-                  <option key={patient.id} value={patient.id}>
-                    {patient.last_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {!form.patientId && (
-              <>
-                <label>
-                  Last name
-                  <input
-                    required
-                    value={form.newPatientLastName}
-                    onChange={(event) =>
-                      setForm((prev) => ({ ...prev, newPatientLastName: event.target.value }))
-                    }
-                  />
-                </label>
-              </>
-            )}
-          </div>
-          <div className="field-group">
-            <label>
-              Doctor
-              <select
-                required
-                value={form.doctorId}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, doctorId: event.target.value }))
-                }
-              >
-                <option value="">Select doctor</option>
-                {doctors.map((doc) => (
-                  <option key={doc.id} value={doc.id}>
-                    {doc.last_name} {doc.first_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Amount
-              <input
-                required
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.amount}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, amount: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Payment method
-              <select
-                value={form.paymentMethod}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, paymentMethod: event.target.value }))
-                }
-              >
-                <option value="cash">Cash</option>
-                <option value="card">Card</option>
-              </select>
-            </label>
-            <label>
-              Note
-              <textarea
-                rows={3}
-                value={form.note}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, note: event.target.value }))
-                }
-              />
-            </label>
-            <button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save payment"}
-            </button>
-          </div>
-          <div className="field-group">
-            <h3>Today summary</h3>
-            <div className="metric">
-              <div className="metric-label">Total income</div>
-              <div className="metric-value">
-                {dailyTotal.toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "CZK"
-                })}
-              </div>
+    <>
+      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
+      
+      <div className="two-col">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Income Log</div>
+              <div className="panel-meta">{records.length} transactions</div>
             </div>
-            <div className="metric">
-              <div className="metric-label">Cash</div>
-              <div className="metric-value">
-                {paymentTotals.cash.toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "CZK"
-                })}
-              </div>
-            </div>
-            <div className="metric">
-              <div className="metric-label">Card</div>
-              <div className="metric-value">
-                {paymentTotals.card.toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "CZK"
-                })}
-              </div>
+            <div className="topbar-actions">
+              <button className="btn btn-ghost">Delete Selected</button>
             </div>
           </div>
-        </form>
-      </section>
-      <section className="card">
-        <div className="card-header">
-          <h2>Doctor income statistics</h2>
-        </div>
-        <div className="grid grid-2">
-          <div className="field-group">
-            <label>
-              Patient surname
-              <input
-                type="text"
-                value={statsQuery}
-                onChange={(event) => setStatsQuery(event.target.value)}
-                placeholder="Type patient last name"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={handleStatsSearch}
-              disabled={statsLoading || !statsQuery.trim()}
-            >
-              {statsLoading ? "Searching..." : "Search"}
-            </button>
-            {doctorStats && doctorStats.doctors && doctorStats.doctors.length === 0 && (
-              <div>No data for entered surname</div>
-            )}
-            {doctorStats && doctorStats.doctors && doctorStats.doctors.length > 0 && (
-              <>
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Doctor</th>
-                        <th>Patients</th>
-                        <th>Visits</th>
-                        <th>Total income</th>
-                        <th>Total commission</th>
-                        <th>Avg commission per patient</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {doctorStats.doctors.map((doc) => (
-                        <tr key={doc.id}>
-                          <td>
-                            {doc.last_name} {doc.first_name}
-                          </td>
-                          <td>{doc.patient_count}</td>
-                          <td>{doc.visit_count}</td>
-                          <td>
-                            {doc.total_income.toLocaleString(undefined, {
-                              style: "currency",
-                              currency: "CZK"
-                            })}
-                          </td>
-                          <td>
-                            {doc.total_commission.toLocaleString(undefined, {
-                              style: "currency",
-                              currency: "CZK"
-                            })}
-                          </td>
-                          <td>
-                            {doc.avg_commission_per_patient.toLocaleString(undefined, {
-                              style: "currency",
-                              currency: "CZK"
-                            })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {doctorPatientRows.length > 0 && (
-                  <>
-                    <h3>Doctor–patient breakdown</h3>
-                    <div className="table-wrapper">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Doctor</th>
-                            <th>Patient</th>
-                            <th>Income from patient</th>
-                            <th>Commission from patient</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {doctorPatientRows.map((row) => (
-                            <tr key={`${row.doctorId}-${row.patientId}`}>
-                              <td>{row.doctorName}</td>
-                              <td>{row.patientName}</td>
-                              <td>
-                                {row.totalIncome.toLocaleString(undefined, {
-                                  style: "currency",
-                                  currency: "CZK"
-                                })}
-                              </td>
-                              <td>
-                                {row.totalCommission.toLocaleString(undefined, {
-                                  style: "currency",
-                                  currency: "CZK"
-                                })}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-          <div className="field-group">
-            {doctorComparisonData && (
-              <>
-                <h3>Doctor comparison</h3>
-                <Bar
-                  data={doctorComparisonData}
-                  options={{
-                    responsive: true,
-                    plugins: {
-                      legend: {
-                        position: "bottom"
-                      }
-                    }
-                  }}
-                />
-              </>
-            )}
-            {monthlyTrendsData && (
-              <>
-                <h3>Monthly income trends</h3>
-                <Line
-                  data={monthlyTrendsData}
-                  options={{
-                    responsive: true,
-                    plugins: {
-                      legend: {
-                        position: "bottom"
-                      }
-                    }
-                  }}
-                />
-              </>
-            )}
-          </div>
-        </div>
-      </section>
-      <section className="card">
-        <div className="card-header">
-          <h2>Income records</h2>
-          <DateRangePicker
-            from={from}
-            to={to}
-            onChange={handleRangeChange}
-          />
-          <div className="button-row hidden-mobile">
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={selectedIds.length === 0}
-              onClick={() =>
-                setConfirmState({ type: "bulk", ids: selectedIds.slice() })
-              }
-            >
-              <span>Delete selected payments</span>
-            </button>
-          </div>
-        </div>
-        {loading ? (
-          <div className="spinner" aria-label="Loading payments" />
-        ) : (
           <div className="table-wrapper">
-            <table>
+            <table className="data-table">
               <thead>
                 <tr>
-                  <th>
-                    <input
-                      type="checkbox"
-                      aria-label="Select all payments"
-                      checked={
-                        records.length > 0 &&
-                        selectedIds.length === records.length
-                      }
-                      onChange={selectAllVisible}
-                    />
-                  </th>
-                  <th>Date</th>
+                  <th><input type="checkbox" /></th>
                   <th>Patient</th>
                   <th>Doctor</th>
                   <th>Amount</th>
                   <th>Method</th>
-                  <th>Note</th>
-                  <th className="hidden-mobile">Actions</th>
+                  <th>Date</th>
                 </tr>
               </thead>
               <tbody>
                 {records.map((record) => (
-                  <tr
-                    key={record.id}
-                    className={
-                      selectedIds.includes(record.id)
-                        ? "swipe-delete swipe-delete-active"
-                        : "swipe-delete"
-                    }
-                    onTouchStart={(event) =>
-                      (event.currentTarget.dataset.touchStartX =
-                        event.touches[0].clientX)
-                    }
-                    onTouchEnd={(event) => {
-                      const startX = Number(
-                        event.currentTarget.dataset.touchStartX || 0
-                      );
-                      const endX = event.changedTouches[0].clientX;
-                      if (startX - endX > 40) {
-                        setConfirmState({ type: "single", ids: [record.id] });
-                      }
-                    }}
-                  >
-                    <td>
-                      <input
-                        type="checkbox"
-                        aria-label="Select payment"
-                        checked={selectedIds.includes(record.id)}
-                        onChange={() => toggleSelect(record.id)}
-                      />
-                    </td>
-                    <td>{record.service_date}</td>
-                    <td>
-                      {record.patient.last_name}
+                  <tr key={record.id}>
+                    <td><input type="checkbox" /></td>
+                    <td>{record.patient.last_name}</td>
+                    <td>{record.doctor.last_name}</td>
+                    <td className="mono" style={{ color: "var(--green)" }}>
+                      {record.amount.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                     </td>
                     <td>
-                      {record.doctor.last_name} {record.doctor.first_name}
+                      <span className={`pill ${record.payment_method === 'cash' ? 'pill-green' : 'pill-blue'}`}>
+                        {record.payment_method}
+                      </span>
                     </td>
-                    <td>
-                      {record.amount.toLocaleString(undefined, {
-                        style: "currency",
-                        currency: "CZK"
-                      })}
-                    </td>
-                    <td>{record.payment_method}</td>
-                    <td>{record.note}</td>
-                    <td className="hidden-mobile">
-                      <button
-                        type="button"
-                        className="btn-danger btn-icon"
-                        disabled={isDeleting(record.id)}
-                        onClick={() =>
-                          setConfirmState({ type: "single", ids: [record.id] })
-                        }
-                        aria-label="Delete payment"
-                      >
-                        <svg
-                          className="icon"
-                          viewBox="0 0 20 20"
-                          aria-hidden="true"
-                        >
-                          <path
-                            fill="currentColor"
-                            d="M7 2h6l1 2h4v2H2V4h4l1-2zm1 6h2v8H8V8zm4 0h2v8h-2V8z"
-                          />
-                        </svg>
-                        <span>Delete</span>
-                      </button>
-                    </td>
+                    <td className="mono">{record.service_date}</td>
                   </tr>
                 ))}
-                {records.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>No records for selected period</td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
-        )}
-      </section>
-      {confirmState && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <div className="modal-header">
-              <h2>Confirm deletion</h2>
+        </div>
+
+        <div className="quick-form">
+          <div className="panel-title" style={{ marginBottom: '16px' }}>Quick Add</div>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <div className="form-label">Patient</div>
+              <select className="form-input" value={form.patientId} onChange={(e) => setForm(p => ({...p, patientId: e.target.value}))}>
+                <option value="">+ New Patient</option>
+                {patients.map((p) => <option key={p.id} value={p.id}>{p.last_name}</option>)}
+              </select>
             </div>
-            <div className="modal-body">
-              <p>
-                {confirmState.type === "bulk"
-                  ? `Delete ${confirmState.ids.length} selected payments?`
-                  : "Delete this payment?"}
-              </p>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setConfirmState(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn-danger"
-                  onClick={() => performDelete(confirmState.ids)}
-                >
-                  Delete
-                </button>
+            {!form.patientId && (
+              <div>
+                <div className="form-label">New Patient Name</div>
+                <input className="form-input" placeholder="e.g. Smith" value={form.newPatientLastName} onChange={(e) => setForm(p => ({...p, newPatientLastName: e.target.value}))} />
+              </div>
+            )}
+            <div>
+              <div className="form-label">Doctor</div>
+              <select className="form-input" required value={form.doctorId} onChange={(e) => setForm(p => ({...p, doctorId: e.target.value}))}>
+                <option value="">Select doctor...</option>
+                {doctors.map((d) => <option key={d.id} value={d.id}>{d.last_name}</option>)}
+              </select>
+            </div>
+            <div className="form-grid">
+              <div>
+                <div className="form-label">Amount</div>
+                <div className="amount-input-wrap">
+                  <span className="amount-prefix">$</span>
+                  <input className="form-input" type="number" placeholder="0.00" value={form.amount} onChange={(e) => setForm(p => ({...p, amount: e.target.value}))} />
+                </div>
+              </div>
+              <div>
+                <div className="form-label">Method</div>
+                <div className="toggle-group">
+                  <div className={`toggle-opt ${form.paymentMethod === 'cash' ? 'on' : ''}`} onClick={() => setForm(p => ({...p, paymentMethod: 'cash'}))}>Cash</div>
+                  <div className={`toggle-opt ${form.paymentMethod === 'card' ? 'on' : ''}`} onClick={() => setForm(p => ({...p, paymentMethod: 'card'}))}>Card</div>
+                </div>
               </div>
             </div>
-          </div>
+            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }} disabled={saving}>
+              {saving ? "Saving..." : "+ Add Payment"}
+            </button>
+          </form>
         </div>
-      )}
-    </div>
+      </div>
+    </>
   );
 }

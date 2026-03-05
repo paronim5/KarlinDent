@@ -155,260 +155,109 @@ export default function StaffPage() {
   };
 
   return (
-    <div className="page page-staff">
-      <h1>Staff</h1>
-      {error && (
-        <div className="form-error" role="alert">
-          {error}
-        </div>
-      )}
-      {lastRemoved && (
-        <div className="flash" role="status" aria-live="polite">
-          <span>
-            Removed {lastRemoved.first_name} {lastRemoved.last_name}.
-          </span>
-          <button type="button" onClick={handleUndoRemove}>
-            Undo
-          </button>
-        </div>
-      )}
-      <section className="card">
-        <div className="card-header">
-          <div className="filters">
-            <label>
-              Role
-              <select
-                value={roleFilter}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setRoleFilter(value);
-                  loadStaff(value, search);
-                }}
-              >
-                <option value="">All</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.name}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Search
-              <input
-                type="text"
-                value={search}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setSearch(value);
-                  loadStaff(roleFilter, value);
-                }}
-                placeholder="Name or email"
-              />
-            </label>
+    <>
+      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
+      
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">Staff Roster</div>
+            <div className="panel-meta">{filteredStaff.length} active members</div>
           </div>
-          <button type="button" onClick={() => setShowForm(true)}>
-            Add personnel
-          </button>
+          <div className="topbar-actions">
+            <input className="form-input" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <button className="btn btn-primary" onClick={() => setShowForm(true)}>+ Recruit</button>
+          </div>
         </div>
-        {loading ? (
-          <div>Loading...</div>
-        ) : (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>Email</th>
-                  <th>Base / hourly</th>
-                  <th>Commission %</th>
-                  <th>Last payment</th>
-                  <th>Total profit</th>
-                  <th>Commission earned</th>
-                  <th>Active</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStaff.map((member) => (
-                  <tr key={member.id}>
-                    <td>{member.role}</td>
-                    <td>
-                      {member.role === "doctor" ? (
-                        <Link to={`/staff/doctor/${member.id}`}>
-                          {member.last_name} {member.first_name}
-                        </Link>
-                      ) : (
-                        <Link to={`/staff/role/${member.id}`}>
-                          {member.last_name} {member.first_name}
-                        </Link>
-                      )}
-                    </td>
-                    <td>{member.phone}</td>
-                    <td>{member.email}</td>
-                    <td>
-                      {member.role === "doctor"
-                        ? "-"
-                        : member.base_salary.toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "CZK"
-                          })}
-                    </td>
-                    <td>
-                      {member.role === "doctor"
-                        ? `${(member.commission_rate * 100).toFixed(1)} %`
-                        : "-"}
-                    </td>
-                    <td>{member.last_paid_at || "-"}</td>
-                    <td>
-                      {member.role === "doctor"
-                        ? member.total_revenue.toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "CZK"
-                          })
-                        : "-"}
-                    </td>
-                    <td>
-                      {member.role === "doctor"
-                        ? member.commission_income.toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "CZK"
-                          })
-                        : "-"}
-                    </td>
-                    <td>{member.is_active ? "Yes" : "No"}</td>
-                    <td>
-                      <div className="button-row">
-                        {member.role === "doctor" && (
-                          <button type="button" onClick={() => handleEditCommission(member)}>
-                            Edit commission
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(member)}
-                          disabled={removingId === member.id}
-                        >
-                          {removingId === member.id ? "Removing..." : "Remove"}
-                        </button>
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Base/Commission</th>
+                <th>Total Earned</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredStaff.map((member) => (
+                <tr key={member.id}>
+                  <td>
+                    <div className="doc-info">
+                      <div className="doc-avatar" style={{ background: `hsl(${member.id * 50}, 50%, 50%)` }}>
+                        {member.first_name[0]}{member.last_name[0]}
                       </div>
-                    </td>
-                  </tr>
-                ))}
-                {filteredStaff.length === 0 && (
-                  <tr>
-                    <td colSpan={9}>No staff members</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                      <div>
+                        <div className="doc-name">{member.first_name} {member.last_name}</div>
+                        <div className="doc-role">{member.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`pill ${member.role === 'doctor' ? 'pill-blue' : 'pill-orange'}`}>
+                      {member.role}
+                    </span>
+                  </td>
+                  <td className="mono">
+                    {member.role === 'doctor' ? `${(member.commission_rate * 100).toFixed(1)}%` : member.base_salary.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                  </td>
+                  <td className="mono" style={{ color: "var(--green)" }}>
+                    {member.commission_income.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                  </td>
+                  <td>
+                    <button className="pay-btn" onClick={() => member.role === 'doctor' ? navigate(`/staff/doctor/${member.id}`) : navigate(`/staff/role/${member.id}`)}>View</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {showForm && (
         <div className="modal-backdrop">
-          <div className="modal">
-            <div className="modal-header">
-              <h2>Add staff member</h2>
-              <button type="button" onClick={() => setShowForm(false)}>
-                ×
-              </button>
-            </div>
-            <form className="modal-body" onSubmit={handleSubmit}>
-              <label>
-                First name
-                <input
-                  required
-                  value={form.firstName}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, firstName: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Last name
-                <input
-                  required
-                  value={form.lastName}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, lastName: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Role
-                <select
-                  value={form.role}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, role: event.target.value }))
-                  }
-                >
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.name}>
-                      {role.name}
-                    </option>
-                  ))}
+          <div className="quick-form" style={{ width: '100%', maxWidth: '500px' }}>
+            <div className="panel-title" style={{ marginBottom: '16px' }}>Recruit New Staff</div>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="form-grid">
+                <div>
+                  <div className="form-label">First Name</div>
+                  <input className="form-input" required value={form.firstName} onChange={(e) => setForm(p => ({...p, firstName: e.target.value}))} />
+                </div>
+                <div>
+                  <div className="form-label">Last Name</div>
+                  <input className="form-input" required value={form.lastName} onChange={(e) => setForm(p => ({...p, lastName: e.target.value}))} />
+                </div>
+              </div>
+              <div>
+                <div className="form-label">Role</div>
+                <select className="form-input" value={form.role} onChange={(e) => setForm(p => ({...p, role: e.target.value}))}>
+                  {roles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
                 </select>
-              </label>
-              <label>
-                {form.role === "doctor" ? "Commission rate (%)" : "Base / hourly salary"}
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.role === "doctor" ? form.commissionRate : form.baseSalary}
-                  onChange={(event) =>
-                    setForm((prev) =>
-                      prev.role === "doctor"
-                        ? { ...prev, commissionRate: event.target.value }
-                        : { ...prev, baseSalary: event.target.value }
-                    )
-                  }
-                />
-              </label>
-              <label>
-                Phone
-                <input
-                  value={form.phone}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, phone: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, email: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Bio
-                <textarea
-                  rows={3}
-                  value={form.bio}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, bio: event.target.value }))
-                  }
-                />
-              </label>
-              <div className="modal-actions">
-                <button type="button" onClick={() => setShowForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" disabled={saving}>
-                  {saving ? "Saving..." : "Save"}
-                </button>
+              </div>
+              <div>
+                <div className="form-label">{form.role === 'doctor' ? 'Commission Rate (%)' : 'Base/Hourly Salary'}</div>
+                <input className="form-input" type="number" value={form.role === 'doctor' ? form.commissionRate : form.baseSalary} onChange={(e) => setForm(p => form.role === 'doctor' ? {...p, commissionRate: e.target.value} : {...p, baseSalary: e.target.value})} />
+              </div>
+              <div className="form-grid">
+                <div>
+                  <div className="form-label">Phone</div>
+                  <input className="form-input" value={form.phone} onChange={(e) => setForm(p => ({...p, phone: e.target.value}))} />
+                </div>
+                <div>
+                  <div className="form-label">Email</div>
+                  <input className="form-input" type="email" value={form.email} onChange={(e) => setForm(p => ({...p, email: e.target.value}))} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Recruit'}</button>
               </div>
             </form>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

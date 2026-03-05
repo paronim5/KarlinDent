@@ -224,417 +224,85 @@ export default function OutcomePage() {
   };
 
   return (
-    <div className="page page-outcome">
-      <h1>Outcome</h1>
-      {error && <div className="form-error">{error}</div>}
-      <section className="grid grid-2">
-        <form className="card" onSubmit={handleExpenseSubmit}>
-          <h2>Record expense</h2>
-          <label>
-            Category
-            <select
-              required
-              value={expenseForm.categoryId}
-              onChange={(event) =>
-                setExpenseForm((prev) => ({ ...prev, categoryId: event.target.value }))
-              }
-            >
-              <option value="">Select category</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Amount
-            <input
-              required
-              type="number"
-              min="0"
-              step="0.01"
-              value={expenseForm.amount}
-              onChange={(event) =>
-                setExpenseForm((prev) => ({ ...prev, amount: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            Date
-            <input
-              type="date"
-              value={expenseForm.expenseDate}
-              onChange={(event) =>
-                setExpenseForm((prev) => ({ ...prev, expenseDate: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            Vendor
-            <input
-              value={expenseForm.vendor}
-              onChange={(event) =>
-                setExpenseForm((prev) => ({ ...prev, vendor: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            Description
-            <textarea
-              rows={3}
-              value={expenseForm.description}
-              onChange={(event) =>
-                setExpenseForm((prev) => ({ ...prev, description: event.target.value }))
-              }
-            />
-          </label>
-          <button type="submit" disabled={savingExpense}>
-            {savingExpense ? "Saving..." : "Save expense"}
-          </button>
-        </form>
-        <form className="card" onSubmit={handleSalarySubmit}>
-          <h2>Record salary payment</h2>
-          <label>
-            Staff member
-            <select
-              required
-              value={salaryForm.staffId}
-              onChange={(event) =>
-                {
-                  const v = event.target.value;
-                  setSalaryForm((prev) => ({ ...prev, staffId: v }));
-                  if (v) {
-                    handleSuggestAmount(v, from, to);
-                  }
-                }
-              }
-            >
-              <option value="">Select staff</option>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.role}: {s.last_name} {s.first_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Amount
-            <input
-              required
-              type="number"
-              min="0"
-              step="0.01"
-              value={salaryForm.amount}
-              onChange={(event) =>
-                setSalaryForm((prev) => ({ ...prev, amount: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            Payment date
-            <input
-              type="date"
-              value={salaryForm.paymentDate}
-              onChange={(event) =>
-                setSalaryForm((prev) => ({ ...prev, paymentDate: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            Note
-            <textarea
-              rows={3}
-              value={salaryForm.note}
-              onChange={(event) =>
-                setSalaryForm((prev) => ({ ...prev, note: event.target.value }))
-              }
-            />
-          </label>
-          <button type="submit" disabled={savingSalary}>
-            {savingSalary ? "Saving..." : "Save salary payment"}
-          </button>
-        </form>
-      </section>
-      <section className="card">
-        <div className="card-header">
-          <h2>Outcome records</h2>
-          <div className="date-range">
-            <label>
-              From
-              <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-            </label>
-            <label>
-              To
-              <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-            </label>
-            <button type="button" onClick={handlePeriodChange}>
-              Apply
-            </button>
-            <button
-              type="button"
-              className="btn-secondary hidden-mobile"
-              disabled={selectedOutcomeIds.length === 0}
-              onClick={() =>
-                setConfirmState({
-                  type: "outcome-bulk",
-                  ids: selectedOutcomeIds.slice()
-                })
-              }
-            >
-              Delete selected expenses
-            </button>
+    <>
+      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
+      
+      <div className="two-col">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Expense Log</div>
+              <div className="panel-meta">{records.length} transactions</div>
+            </div>
+            <div className="topbar-actions">
+              <button className="btn btn-ghost">Delete Selected</button>
+            </div>
+          </div>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" /></th>
+                  <th>Category</th>
+                  <th>Vendor</th>
+                  <th>Amount</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((record) => (
+                  <tr key={record.id}>
+                    <td><input type="checkbox" /></td>
+                    <td>
+                      <span className={`pill ${record.category === 'lease' ? 'pill-red' : 'pill-orange'}`}>
+                        {record.category}
+                      </span>
+                    </td>
+                    <td>{record.vendor}</td>
+                    <td className="mono" style={{ color: "var(--red)" }}>
+                      {record.amount.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    </td>
+                    <td className="mono">{record.expense_date}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-        <div className="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    aria-label="Select all expenses"
-                    checked={
-                      records.length > 0 &&
-                      selectedOutcomeIds.length === records.length
-                    }
-                    onChange={selectAllOutcome}
-                  />
-                </th>
-                <th>Date</th>
-                <th>Category</th>
-                <th>Vendor</th>
-                <th>Description</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((item) => (
-                <tr
-                  key={`o-${item.id}`}
-                  className={
-                    selectedOutcomeIds.includes(item.id)
-                      ? "swipe-delete swipe-delete-active"
-                      : "swipe-delete"
-                  }
-                  onTouchStart={(event) =>
-                    (event.currentTarget.dataset.touchStartX =
-                      event.touches[0].clientX)
-                  }
-                  onTouchEnd={(event) => {
-                    const startX = Number(
-                      event.currentTarget.dataset.touchStartX || 0
-                    );
-                    const endX = event.changedTouches[0].clientX;
-                    if (startX - endX > 40) {
-                      setConfirmState({
-                        type: "outcome-single",
-                        ids: [item.id]
-                      });
-                    }
-                  }}
-                >
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label="Select expense"
-                      checked={selectedOutcomeIds.includes(item.id)}
-                      onChange={() => toggleSelectOutcome(item.id)}
-                    />
-                  </td>
-                  <td>{item.expense_date}</td>
-                  <td>{item.category}</td>
-                  <td>{item.vendor}</td>
-                  <td>{item.description}</td>
-                  <td>
-                    {item.amount.toLocaleString(undefined, {
-                      style: "currency",
-                      currency: "CZK"
-                    })}
-                  </td>
-                  <td className="hidden-mobile">
-                    <button
-                      type="button"
-                      className="btn-danger btn-icon"
-                      disabled={isDeletingOutcome(item.id)}
-                      onClick={() =>
-                        setConfirmState({
-                          type: "outcome-single",
-                          ids: [item.id]
-                        })
-                      }
-                      aria-label="Delete expense"
-                    >
-                      <svg
-                        className="icon"
-                        viewBox="0 0 20 20"
-                        aria-hidden="true"
-                      >
-                        <path
-                          fill="currentColor"
-                          d="M7 2h6l1 2h4v2H2V4h4l1-2zm1 6h2v8H8V8zm4 0h2v8h-2V8z"
-                        />
-                      </svg>
-                      <span>Delete</span>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {records.length === 0 && (
-                <tr>
-                  <td colSpan={6}>No expenses for selected period</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <h3>Salary payments</h3>
-        <div className="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    aria-label="Select all salary payments"
-                    checked={
-                      salaries.length > 0 &&
-                      selectedSalaryIds.length === salaries.length
-                    }
-                    onChange={selectAllSalary}
-                  />
-                </th>
-                <th>Date</th>
-                <th>Staff</th>
-                <th>Amount</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {salaries.map((item) => (
-                <tr
-                  key={`s-${item.id}`}
-                  className={
-                    selectedSalaryIds.includes(item.id)
-                      ? "swipe-delete swipe-delete-active"
-                      : "swipe-delete"
-                  }
-                  onTouchStart={(event) =>
-                    (event.currentTarget.dataset.touchStartX =
-                      event.touches[0].clientX)
-                  }
-                  onTouchEnd={(event) => {
-                    const startX = Number(
-                      event.currentTarget.dataset.touchStartX || 0
-                    );
-                    const endX = event.changedTouches[0].clientX;
-                    if (startX - endX > 40) {
-                      setConfirmState({
-                        type: "salary-single",
-                        ids: [item.id]
-                      });
-                    }
-                  }}
-                >
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label="Select salary payment"
-                      checked={selectedSalaryIds.includes(item.id)}
-                      onChange={() => toggleSelectSalary(item.id)}
-                    />
-                  </td>
-                  <td>{item.payment_date}</td>
-                  <td>
-                    {item.staff.last_name} {item.staff.first_name}
-                  </td>
-                  <td>
-                    {item.amount.toLocaleString(undefined, {
-                      style: "currency",
-                      currency: "CZK"
-                    })}
-                  </td>
-                  <td>{item.note}</td>
-                  <td className="hidden-mobile">
-                    <button
-                      type="button"
-                      className="btn-danger btn-icon"
-                      disabled={isDeletingSalary(item.id)}
-                      onClick={() =>
-                        setConfirmState({
-                          type: "salary-single",
-                          ids: [item.id]
-                        })
-                      }
-                      aria-label="Delete salary payment"
-                    >
-                      <svg
-                        className="icon"
-                        viewBox="0 0 20 20"
-                        aria-hidden="true"
-                      >
-                        <path
-                          fill="currentColor"
-                          d="M7 2h6l1 2h4v2H2V4h4l1-2zm1 6h2v8H8V8zm4 0h2v8h-2V8z"
-                        />
-                      </svg>
-                      <span>Delete</span>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {salaries.length === 0 && (
-                <tr>
-                  <td colSpan={5}>No salary payments for selected period</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {confirmState && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <div className="modal-header">
-              <h2>Confirm deletion</h2>
+
+        <div className="quick-form">
+          <div className="panel-title" style={{ marginBottom: '16px' }}>Quick Add</div>
+          <form onSubmit={handleExpenseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <div className="form-label">Category</div>
+              <select className="form-input" required value={expenseForm.categoryId} onChange={(e) => setExpenseForm(p => ({...p, categoryId: e.target.value}))}>
+                <option value="">Select category...</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
-            <div className="modal-body">
-              <p>
-                {confirmState.type === "outcome-bulk"
-                  ? `Delete ${confirmState.ids.length} selected expenses?`
-                  : confirmState.type === "salary-bulk"
-                  ? `Delete ${confirmState.ids.length} selected salary payments?`
-                  : "Delete this payment?"}
-              </p>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setConfirmState(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn-danger"
-                  onClick={() => {
-                    if (
-                      confirmState.type === "outcome-single" ||
-                      confirmState.type === "outcome-bulk"
-                    ) {
-                      performDeleteOutcome(confirmState.ids);
-                    } else {
-                      performDeleteSalary(confirmState.ids);
-                    }
-                  }}
-                >
-                  Delete
-                </button>
+            <div>
+              <div className="form-label">Vendor</div>
+              <input className="form-input" placeholder="e.g. Dental Supplies Inc." value={expenseForm.vendor} onChange={(e) => setExpenseForm(p => ({...p, vendor: e.target.value}))} />
+            </div>
+            <div className="form-grid">
+              <div>
+                <div className="form-label">Amount</div>
+                <div className="amount-input-wrap">
+                  <span className="amount-prefix">$</span>
+                  <input className="form-input" type="number" placeholder="0.00" value={expenseForm.amount} onChange={(e) => setExpenseForm(p => ({...p, amount: e.target.value}))} />
+                </div>
+              </div>
+              <div>
+                <div className="form-label">Date</div>
+                <input className="form-input" type="date" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm(p => ({...p, expenseDate: e.target.value}))} />
               </div>
             </div>
-          </div>
+            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }} disabled={savingExpense}>
+              {savingExpense ? "Saving..." : "+ Add Expense"}
+            </button>
+          </form>
         </div>
-      )}
-    </div>
+      </div>
+    </>
   );
 }

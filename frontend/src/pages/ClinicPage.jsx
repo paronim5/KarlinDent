@@ -51,98 +51,120 @@ export default function ClinicPage() {
         labels,
         datasets: [
           {
-            label: "Income",
-            borderColor: "#16a34a",
-            backgroundColor: "rgba(22, 163, 74, 0.2)",
+            label: "INCOME",
+            borderColor: "#2ecc40",
+            backgroundColor: "rgba(46, 204, 64, 0.1)",
+            borderWidth: 4,
+            pointRadius: 6,
+            pointBackgroundColor: "#2ecc40",
             data: dashboard.daily_pnl.map((item) => item.total_income)
           },
           {
-            label: "Outcome",
-            borderColor: "#dc2626",
-            backgroundColor: "rgba(220, 38, 38, 0.2)",
+            label: "OUTCOME",
+            borderColor: "#e03030",
+            backgroundColor: "rgba(224, 48, 48, 0.1)",
+            borderWidth: 4,
+            pointRadius: 6,
+            pointBackgroundColor: "#e03030",
             data: dashboard.daily_pnl.map((item) => item.total_outcome)
           },
           {
-            label: "P&L",
-            borderColor: "#2563eb",
-            backgroundColor: "rgba(37, 99, 235, 0.2)",
+            label: "PROFIT",
+            borderColor: "#ffd700",
+            backgroundColor: "rgba(255, 215, 0, 0.1)",
+            borderWidth: 4,
+            pointRadius: 6,
+            pointBackgroundColor: "#ffd700",
             data: dashboard.daily_pnl.map((item) => item.pnl)
           }
         ]
       };
     })();
 
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      },
+      y: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      }
+    },
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
+      }
+    }
+  };
+
   return (
-    <div className="page page-clinic">
-      <h1>Clinic overview</h1>
+    <>
       {loading && <div>Loading...</div>}
       {error && <div className="form-error">{error}</div>}
       {dashboard && (
         <>
-          <section className="grid grid-3">
-            <div className="metric">
-              <div className="metric-label">Monthly lease cost</div>
-              <div className="metric-value">
+          <div className="stat-strip">
+            <div className="stat-card s-orange">
+              <div className="stat-icon">↗</div>
+              <div className="stat-label">Total Income</div>
+              <div className="stat-value">
                 {dashboard.lease_cost.toLocaleString(undefined, {
                   style: "currency",
                   currency: "CZK"
                 })}
               </div>
             </div>
-            <div className="metric">
-              <div className="metric-label">Average payment per patient</div>
-              <div className="metric-value">
+            <div className="stat-card s-red">
+              <div className="stat-icon">↙</div>
+              <div className="stat-label">Payroll Due</div>
+              <div className="stat-value">
                 {dashboard.avg_payment_per_patient.toLocaleString(undefined, {
                   style: "currency",
                   currency: "CZK"
                 })}
               </div>
             </div>
-            <div className="metric">
-              <div className="metric-label">Average salary by role</div>
-              <ul className="metric-list">
-                {Object.entries(dashboard.avg_salary_by_role).map(([role, value]) => (
-                  <li key={role}>
-                    <span>{role}</span>
-                    <span>
-                      {value.toLocaleString(undefined, {
-                        style: "currency",
-                        currency: "CZK"
-                      })}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-          <section className="card">
-            <div className="card-header">
-              <h2>Daily P&amp;L</h2>
-              <div className="button-row">
-                <button type="button" onClick={handleExportCsv}>
-                  Export CSV
-                </button>
-                <button type="button" onClick={handleExportPdf}>
-                  Export PDF
-                </button>
+            <div className="stat-card s-green">
+              <div className="stat-icon">◈</div>
+              <div className="stat-label">Net Profit</div>
+              <div className="stat-value">
+                {Object.values(dashboard.avg_salary_by_role).reduce((a, b) => a + b, 0).toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "CZK"
+                })}
               </div>
             </div>
-            {chartData && (
-              <Line
-                data={chartData}
-                options={{
-                  responsive: true,
-                  plugins: {
-                    legend: {
-                      position: "bottom"
-                    }
-                  }
-                }}
-              />
-            )}
-          </section>
+            <div className="stat-card s-blue">
+              <div className="stat-icon">◉</div>
+              <div className="stat-label">Active Staff</div>
+              <div className="stat-value">{Object.keys(dashboard.avg_salary_by_role).length}</div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <div className="panel-title">Daily P&L</div>
+                <div className="panel-meta">Last 30 days</div>
+              </div>
+              <div className="topbar-actions">
+                <button className="btn btn-ghost" onClick={handleExportCsv}>⇣ Export CSV</button>
+                <button className="btn btn-ghost" onClick={handleExportPdf}>⇣ Export PDF</button>
+              </div>
+            </div>
+            <div className="chart-area">
+              {chartData && (
+                <Line data={chartData} options={chartOptions} />
+              )}
+            </div>
+          </div>
         </>
       )}
-    </div>
+    </>
   );
 }

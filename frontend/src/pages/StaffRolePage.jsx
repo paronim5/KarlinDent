@@ -124,123 +124,75 @@ export default function StaffRolePage() {
   const title = staff ? staff.role.charAt(0).toUpperCase() + staff.role.slice(1) : "Staff member";
 
   return (
-    <div className="page page-staff-role">
-      <div className="card-header">
-        <h1>{title}</h1>
-        <div>
-          <Link to="/staff">← Back to Staff</Link>
-        </div>
-      </div>
-      {error && <div className="form-error">{error}</div>}
-      <section className="grid grid-2">
-        <div className="card">
-          <h2>Timesheets</h2>
-          <div className="date-range">
-            <label>
-              From
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-            </label>
-            <label>
-              To
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-            </label>
-            <button type="button" onClick={handlePeriodApply}>Apply</button>
+    <>
+      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
+      
+      <div className="two-col">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Timesheet Log</div>
+              <div className="panel-meta">{timesheets.length} entries</div>
+            </div>
           </div>
           <div className="table-wrapper">
-            <table>
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Start</th>
                   <th>End</th>
                   <th>Hours</th>
-                  <th>Note</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {timesheets.map((t) => (
                   <tr key={t.id}>
-                    <td>{t.work_date}</td>
-                    <td>{t.start_time}</td>
-                    <td>{t.end_time}</td>
-                    <td>{t.hours.toFixed(2)}</td>
-                    <td>{t.note || ""}</td>
+                    <td className="mono">{t.work_date}</td>
+                    <td className="mono">{t.start_time.slice(0, 5)}</td>
+                    <td className="mono">{t.end_time.slice(0, 5)}</td>
+                    <td className="mono" style={{ color: "var(--accent)" }}>{t.hours.toFixed(2)}</td>
                     <td>
-                      <button type="button" className="btn-secondary btn-small" onClick={() => handleEdit(t)}>Edit</button>
-                      <button type="button" className="btn-danger btn-small" onClick={() => handleDelete(t.id)}>Delete</button>
+                      <button className="pay-btn" onClick={() => handleEdit(t)}>Edit</button>
                     </td>
                   </tr>
                 ))}
-                {timesheets.length === 0 && (
-                  <tr>
-                    <td colSpan={6}>No timesheets for selected period</td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
         </div>
-        <form className="card" onSubmit={handleAdd}>
-          <h2>{editingId ? "Edit shift" : "Add shift"}</h2>
-          <label>
-            Date
-            <input
-              type="date"
-              value={form.workDate}
-              onChange={(e) => setForm((p) => ({ ...p, workDate: e.target.value }))}
-            />
-          </label>
-          <label>
-            Start time
-            <input
-              type="time"
-              value={form.startTime}
-              onChange={(e) => setForm((p) => ({ ...p, startTime: e.target.value }))}
-            />
-          </label>
-          <label>
-            End time
-            <input
-              type="time"
-              value={form.endTime}
-              onChange={(e) => setForm((p) => ({ ...p, endTime: e.target.value }))}
-            />
-          </label>
-          <label>
-            Note
-            <input
-              value={form.note}
-              onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
-            />
-          </label>
-          <div className="button-row">
-            <button type="submit" disabled={saving}>
-              {saving ? "Saving..." : (editingId ? "Update shift" : "Save shift")}
-            </button>
-            {editingId && (
-              <button type="button" className="btn-secondary" onClick={handleCancelEdit}>
-                Cancel
+
+        <div className="quick-form">
+          <div className="panel-title" style={{ marginBottom: '16px' }}>{editingId ? 'Edit Shift' : 'Add Shift'}</div>
+          <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <div className="form-label">Date</div>
+              <input className="form-input" type="date" value={form.workDate} onChange={(e) => setForm(p => ({...p, workDate: e.target.value}))} />
+            </div>
+            <div className="form-grid">
+              <div>
+                <div className="form-label">Start Time</div>
+                <input className="form-input" type="time" value={form.startTime} onChange={(e) => setForm(p => ({...p, startTime: e.target.value}))} />
+              </div>
+              <div>
+                <div className="form-label">End Time</div>
+                <input className="form-input" type="time" value={form.endTime} onChange={(e) => setForm(p => ({...p, endTime: e.target.value}))} />
+              </div>
+            </div>
+            <div>
+              <div className="form-label">Note</div>
+              <input className="form-input" placeholder="Shift details..." value={form.note} onChange={(e) => setForm(p => ({...p, note: e.target.value}))} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              {editingId && <button type="button" className="btn btn-ghost" onClick={handleCancelEdit}>Cancel</button>}
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? "Saving..." : (editingId ? "Update Shift" : "+ Add Shift")}
               </button>
-            )}
-          </div>
-        </form>
-      </section>
-      <section className="card">
-        <div className="card-header">
-          <h2>Totals</h2>
+            </div>
+          </form>
         </div>
-        <div className="metric">
-          <div className="metric-label">Total hours</div>
-          <div className="metric-value">{totalHours.toFixed(2)} h</div>
-        </div>
-        <div className="metric">
-          <div className="metric-label">Calculated wages</div>
-          <div className="metric-value">
-            {Number(totalWages).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
-          </div>
-        </div>
-      </section>
-    </div>
+      </div>
+    </>
   );
 }

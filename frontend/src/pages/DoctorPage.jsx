@@ -45,6 +45,27 @@ export default function DoctorPage() {
   const [to, setTo] = useState(to30);
   const [loading, setLoading] = useState(false);
 
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      },
+      y: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      }
+    },
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
+      }
+    }
+  };
+
   const loadAll = async (rangeFrom = from, rangeTo = to) => {
     setLoading(true);
     setError("");
@@ -87,17 +108,21 @@ export default function DoctorPage() {
       labels,
       datasets: [
         {
-          label: "Income",
+          label: "INCOME",
           data: daily.map((d) => d.total_income),
-          borderColor: "rgba(54, 162, 235, 1)",
-          backgroundColor: "rgba(54, 162, 235, 0.3)",
+          borderColor: "#00d4ff",
+          backgroundColor: "rgba(0, 212, 255, 0.1)",
+          borderWidth: 3,
+          pointRadius: 4,
           tension: 0.2
         },
         {
-          label: "Commission",
+          label: "COMMISSION",
           data: daily.map((d) => d.total_commission),
-          borderColor: "rgba(75, 192, 192, 1)",
-          backgroundColor: "rgba(75, 192, 192, 0.3)",
+          borderColor: "#2ecc40",
+          backgroundColor: "rgba(46, 204, 64, 0.1)",
+          borderWidth: 3,
+          pointRadius: 4,
           tension: 0.2
         }
       ]
@@ -111,121 +136,92 @@ export default function DoctorPage() {
       labels,
       datasets: [
         {
-          label: "Income",
+          label: "INCOME",
           data: monthly.map((m) => m.total_income),
-          backgroundColor: "rgba(54, 162, 235, 0.7)"
+          backgroundColor: "rgba(0, 212, 255, 0.7)",
+          borderColor: "#00d4ff",
+          borderWidth: 2
         },
         {
-          label: "Commission",
+          label: "COMMISSION",
           data: monthly.map((m) => m.total_commission),
-          backgroundColor: "rgba(75, 192, 192, 0.7)"
+          backgroundColor: "rgba(46, 204, 64, 0.7)",
+          borderColor: "#2ecc40",
+          borderWidth: 2
         }
       ]
     };
   }, [monthly]);
 
   return (
-    <div className="page page-doctor">
-      <div className="card-header">
-        <h1>
-          Doctor statistics
-        </h1>
-        <div>
-          <Link to="/staff">← Back to Staff</Link>
-        </div>
-      </div>
-      {error && <div className="form-error">{error}</div>}
-      {overview ? (
-        <section className="grid grid-3">
-          <div className="card">
-            <h2>
-              {overview.doctor.last_name} {overview.doctor.first_name}
-            </h2>
-            <div>Commission rate: {(overview.commission_rate * 100).toFixed(1)} %</div>
-          </div>
-          <div className="card">
-            <h3>Today</h3>
-            <div className="metric">
-              <div className="metric-label">Income</div>
-              <div className="metric-value">
-                {overview.today.total_income.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
-              </div>
+    <>
+      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
+      
+      {overview && (
+        <>
+          <div className="stat-strip">
+            <div className="stat-card s-blue">
+              <div className="stat-icon">◉</div>
+              <div className="stat-label">Lifetime Patients</div>
+              <div className="stat-value">{overview.lifetime.patient_count}</div>
             </div>
-            <div className="metric">
-              <div className="metric-label">Commission</div>
-              <div className="metric-value">
-                {overview.today.total_commission.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
-              </div>
-            </div>
-            <div className="metric">
-              <div className="metric-label">Visits</div>
-              <div className="metric-value">{overview.today.visit_count}</div>
-            </div>
-          </div>
-          <div className="card">
-            <h3>Lifetime</h3>
-            <div className="metric">
-              <div className="metric-label">Income</div>
-              <div className="metric-value">
+            <div className="stat-card s-orange">
+              <div className="stat-icon">↗</div>
+              <div className="stat-label">Lifetime Income</div>
+              <div className="stat-value">
                 {overview.lifetime.total_income.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
               </div>
             </div>
-            <div className="metric">
-              <div className="metric-label">Commission</div>
-              <div className="metric-value">
+            <div className="stat-card s-green">
+              <div className="stat-icon">↗</div>
+              <div className="stat-label">Lifetime Commission</div>
+              <div className="stat-value">
                 {overview.lifetime.total_commission.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
               </div>
             </div>
-            <div className="metric">
-              <div className="metric-label">Patients</div>
-              <div className="metric-value">{overview.lifetime.patient_count}</div>
-            </div>
-            <div className="metric">
-              <div className="metric-label">Avg commission per patient</div>
-              <div className="metric-value">
+            <div className="stat-card s-green">
+              <div className="stat-icon">◈</div>
+              <div className="stat-label">Avg Commission/Patient</div>
+              <div className="stat-value">
                 {overview.lifetime.avg_commission_per_patient.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
               </div>
             </div>
           </div>
-        </section>
-      ) : !error ? (
-        <div>Loading...</div>
-      ) : null}
-      <section className="card">
-        <div className="card-header">
-          <h2>Daily income & commission</h2>
-          <DateRangePicker from={from} to={to} onChange={handleRangeChange} />
-        </div>
-        {loading ? (
-          <div>Loading...</div>
-        ) : dailyChartData ? (
-          <Line
-            data={dailyChartData}
-            options={{
-              responsive: true,
-              plugins: { legend: { position: "bottom" } }
-            }}
-          />
-        ) : (
-          <div>No data for selected range</div>
-        )}
-      </section>
-      <section className="card">
-        <div className="card-header">
-          <h2>Monthly income & commission</h2>
-        </div>
-        {monthlyChartData ? (
-          <Bar
-            data={monthlyChartData}
-            options={{
-              responsive: true,
-              plugins: { legend: { position: "bottom" } }
-            }}
-          />
-        ) : (
-          <div>No monthly data</div>
-        )}
-      </section>
-    </div>
+
+          <div className="two-col">
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <div className="panel-title">Daily Performance</div>
+                  <div className="panel-meta">Last 30 days</div>
+                </div>
+              </div>
+              <div className="chart-area">
+                {dailyChartData ? (
+                  <Line data={dailyChartData} options={chartOptions} />
+                ) : (
+                  <div>No data for selected range</div>
+                )}
+              </div>
+            </div>
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <div className="panel-title">Monthly Performance</div>
+                  <div className="panel-meta">Last 12 months</div>
+                </div>
+              </div>
+              <div className="chart-area">
+                {monthlyChartData ? (
+                  <Bar data={monthlyChartData} options={chartOptions} />
+                ) : (
+                  <div>No monthly data</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }

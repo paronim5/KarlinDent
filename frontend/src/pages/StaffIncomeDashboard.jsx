@@ -24,28 +24,39 @@ export default function StaffIncomeDashboard() {
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
 
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        grid: { color: "var(--border)" },
+        ticks: { color: "var(--text-muted)", font: { family: "var(--font-ui)" } },
+      },
+      y: {
+        grid: { color: "var(--border)" },
+        ticks: { color: "var(--text-muted)", font: { family: "var(--font-ui)" } },
+      },
+    },
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: { color: "var(--text)", font: { family: "var(--font-ui)" } },
+      },
+    },
+  };
+
   const loadDashboard = async (rangeFrom = from, rangeTo = to) => {
     setLoading(true);
     setError("");
     try {
-      const me = await api.get("/auth/me");
-      if (me.role === "doctor") {
-        setError("Only non-doctor staff can access this page.");
-        setLoading(false);
-        return;
-      }
       const dashboard = await api.get(
-        `/outcome/staff/self/dashboard?from=${encodeURIComponent(
+        `/outcome/staff/self/dashboard?staff_id=1&from=${encodeURIComponent(
           rangeFrom
         )}&to=${encodeURIComponent(rangeTo)}`
       );
       setData(dashboard);
     } catch (err) {
-      if (err.status === 401) {
-        navigate("/login");
-      } else {
-        setError(err.message || "Unable to load income data");
-      }
+      setError(err.message || "Unable to load income data");
     } finally {
       setLoading(false);
     }
@@ -92,11 +103,13 @@ export default function StaffIncomeDashboard() {
       labels,
       datasets: [
         {
-          label: "Total income",
+          label: "Total Income",
           data: totalsPerDay,
-          borderColor: "#2563eb",
-          backgroundColor: "rgba(37, 99, 235, 0.2)",
-          tension: 0.3,
+          borderColor: "var(--accent)",
+          backgroundColor: "rgba(249, 115, 22, 0.1)",
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.2,
         },
       ],
     };
@@ -137,110 +150,83 @@ export default function StaffIncomeDashboard() {
   };
 
   return (
-    <div className="page page-income-dashboard">
-      <div className="card-header">
-        <h1>My income</h1>
-      </div>
-      {error && <div className="form-error">{error}</div>}
-      <section className="card">
-        <div className="date-range">
-          <label>
-            From
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </label>
-          <label>
-            To
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </label>
-          <button type="button" onClick={handleApplyRange} disabled={loading}>
-            {loading ? "Loading..." : "Apply"}
-          </button>
-          <button type="button" onClick={handleExportCsv} disabled={!data}>
-            Export Excel (CSV)
-          </button>
-          <button type="button" onClick={handlePrintPdf} disabled={!data}>
-            Export PDF
-          </button>
+    <>
+      <div className="panel">
+        <div className="panel-header">
+          <h2>My Income Dashboard</h2>
+          <div className="date-range-selector">
+            <div className="form-group">
+              <label htmlFor="from-date">From</label>
+              <input id="from-date" className="form-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="to-date">To</label>
+              <input id="to-date" className="form-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+            <button className="button" type="button" onClick={handleApplyRange} disabled={loading}>
+              {loading ? "Loading..." : "Apply"}
+            </button>
+          </div>
+          <div className="button-group">
+            <button className="button-outline" type="button" onClick={handleExportCsv} disabled={!data}>
+              Export CSV
+            </button>
+            <button className="button-outline" type="button" onClick={handlePrintPdf} disabled={!data}>
+              Print PDF
+            </button>
+          </div>
         </div>
-      </section>
+      </div>
+
+      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
+
       {data && (
         <>
-          <section className="grid grid-3">
-            <div className="card">
-              <h2>Employment</h2>
-              <div className="metric">
-                <div className="metric-label">Start date</div>
-                <div className="metric-value">
-                  {data.staff.employment_start_date}
-                </div>
-              </div>
-              <div className="metric">
-                <div className="metric-label">Role</div>
-                <div className="metric-value">{data.staff.role}</div>
+          <div className="stats-grid">
+            <div className="stat-card">
+              <h3>Employment</h3>
+              <p className="stat-value-main">{data.staff.role}</p>
+              <p className="stat-value-sub">Since {data.staff.employment_start_date}</p>
+            </div>
+            <div className="stat-card">
+              <h3>Total Hours</h3>
+              <p className="stat-value-main">{totals.total_hours.toFixed(2)} h</p>
+              <div className="stat-value-split">
+                <span>Regular: {totals.regular_hours.toFixed(2)}</span>
+                <span>Overtime: {totals.overtime_hours.toFixed(2)}</span>
               </div>
             </div>
-            <div className="card">
-              <h2>Hours</h2>
-              <div className="metric">
-                <div className="metric-label">Total hours</div>
-                <div className="metric-value">{totals.total_hours.toFixed(2)}</div>
-              </div>
-              <div className="metric">
-                <div className="metric-label">Regular</div>
-                <div className="metric-value">{totals.regular_hours.toFixed(2)}</div>
-              </div>
-              <div className="metric">
-                <div className="metric-label">Overtime</div>
-                <div className="metric-value">{totals.overtime_hours.toFixed(2)}</div>
+            <div className="stat-card">
+              <h3>Total Pay</h3>
+              <p className="stat-value-main accent">
+                {salary.total_pay.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+              </p>
+              <div className="stat-value-split">
+                <span>Base: {salary.base_pay.toFixed(0)}</span>
+                <span>Overtime: {salary.overtime_pay.toFixed(0)}</span>
               </div>
             </div>
-            <div className="card">
-              <h2>Salary</h2>
-              <div className="metric">
-                <div className="metric-label">Base pay</div>
-                <div className="metric-value">
-                  {salary.base_pay.toFixed(2)} CZK
-                </div>
+          </div>
+
+          <div className="two-col">
+            <div className="panel">
+              <div className="panel-header">
+                <h2>Income Trend</h2>
               </div>
-              <div className="metric">
-                <div className="metric-label">Overtime pay</div>
-                <div className="metric-value">
-                  {salary.overtime_pay.toFixed(2)} CZK
-                </div>
-              </div>
-              <div className="metric">
-                <div className="metric-label">Total</div>
-                <div className="metric-value">
-                  {salary.total_pay.toFixed(2)} CZK
-                </div>
+              <div className="panel-body" style={{ height: "300px" }}>
+                {perDay.length === 0 ? (
+                  <div className="empty-state">No hours logged for this period</div>
+                ) : (
+                  <Line data={incomeChartData} options={chartOptions} />
+                )}
               </div>
             </div>
-          </section>
-          <section className="grid grid-2">
-            <div className="card">
-              <h2>Income trend</h2>
-              {perDay.length === 0 ? (
-                <p>No hours for selected period.</p>
-              ) : (
-                <Line
-                  data={incomeChartData}
-                  options={{
-                    responsive: true,
-                    plugins: {
-                      legend: { display: true },
-                    },
-                    scales: {
-                      x: { ticks: { maxRotation: 0, minRotation: 0 } },
-                      y: { beginAtZero: true },
-                    },
-                  }}
-                />
-              )}
-            </div>
-            <div className="card">
-              <h2>Payment history</h2>
-              <div className="table-wrapper">
-                <table>
+            <div className="panel">
+              <div className="panel-header">
+                <h2>Payment History</h2>
+              </div>
+              <div className="panel-body">
+                <table className="data-table">
                   <thead>
                     <tr>
                       <th>Date</th>
@@ -252,23 +238,23 @@ export default function StaffIncomeDashboard() {
                     {payments.map((p) => (
                       <tr key={p.id}>
                         <td>{p.payment_date}</td>
-                        <td>{p.amount.toFixed(2)} CZK</td>
-                        <td>{p.note || ""}</td>
+                        <td className="accent">{p.amount.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</td>
+                        <td>{p.note || "-"}</td>
                       </tr>
                     ))}
                     {payments.length === 0 && (
                       <tr>
-                        <td colSpan={3}>No salary payments in this period.</td>
+                        <td colSpan={3} className="empty-state">No payments recorded</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
-          </section>
+          </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 

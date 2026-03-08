@@ -14,6 +14,9 @@ services:
       - ./migrations/002_add_lab_cost_to_income.sql:/docker-entrypoint-initdb.d/03_add_lab_cost_to_income.sql:ro
       - ./migrations/003_add_medicine_presets.sql:/docker-entrypoint-initdb.d/04_add_medicine_presets.sql:ro
       - ./migrations/004_add_patient_address.sql:/docker-entrypoint-initdb.d/05_add_patient_address.sql:ro
+      - ./migrations/006_add_time_columns.sql:/docker-entrypoint-initdb.d/06_add_time_columns.sql:ro
+      - ./migrations/007_add_salary_links.sql:/docker-entrypoint-initdb.d/07_add_salary_links.sql:ro
+      - ./migrations/008_add_staff_roles.sql:/docker-entrypoint-initdb.d/08_add_staff_roles.sql:ro
 
   backend:
     build: ./backend
@@ -40,4 +43,3 @@ services:
 
 volumes:
   db_data:
-

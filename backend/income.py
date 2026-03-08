@@ -180,6 +180,7 @@ def list_income_records():
             params.append(payment_method_param)
         where_sql = " AND ".join(conditions)
         includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        has_salary_link = column_exists(conn, "income_records", "salary_payment_id")
         if includes_lab_cost:
             cur.execute(
                 f"""
@@ -193,7 +194,7 @@ def list_income_records():
                        p.last_name,
                        s.first_name,
                        s.last_name,
-                       ir.salary_payment_id
+                       {"ir.salary_payment_id" if has_salary_link else "NULL AS salary_payment_id"}
                 FROM income_records ir
                 JOIN patients p ON p.id = ir.patient_id
                 JOIN staff s ON s.id = ir.doctor_id
@@ -214,7 +215,7 @@ def list_income_records():
                        p.last_name,
                        s.first_name,
                        s.last_name,
-                       ir.salary_payment_id
+                       {"ir.salary_payment_id" if has_salary_link else "NULL AS salary_payment_id"}
                 FROM income_records ir
                 JOIN patients p ON p.id = ir.patient_id
                 JOIN staff s ON s.id = ir.doctor_id
@@ -278,12 +279,13 @@ def get_income_record(record_id: int):
         cur = conn.cursor()
         
         includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        has_salary_link = column_exists(conn, "income_records", "salary_payment_id")
         
         columns = [
             "ir.id", "ir.amount", "ir.payment_method", "ir.service_date", "ir.note",
             "ir.doctor_id", "ir.patient_id",
             "p.first_name", "p.last_name", "p.phone", "p.street_address", "p.city", "p.zip_code",
-            "ir.salary_payment_id"
+            "ir.salary_payment_id" if has_salary_link else "NULL AS salary_payment_id"
         ]
         if includes_lab_cost:
             columns.append("ir.lab_cost")
@@ -340,10 +342,21 @@ def delete_income_record(record_id: int):
         cur = conn.cursor()
         
         includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        has_salary_link = column_exists(conn, "income_records", "salary_payment_id")
         if includes_lab_cost:
-             cur.execute("SELECT amount, doctor_id, salary_payment_id, lab_cost FROM income_records WHERE id = %s", (record_id,))
+            cur.execute(
+                f"SELECT amount, doctor_id, "
+                f'{"salary_payment_id" if has_salary_link else "NULL"}, '
+                f"lab_cost FROM income_records WHERE id = %s",
+                (record_id,),
+            )
         else:
-             cur.execute("SELECT amount, doctor_id, salary_payment_id, 0 FROM income_records WHERE id = %s", (record_id,))
+            cur.execute(
+                f"SELECT amount, doctor_id, "
+                f'{"salary_payment_id" if has_salary_link else "NULL"}, '
+                f"0 FROM income_records WHERE id = %s",
+                (record_id,),
+            )
              
         row = cur.fetchone()
         if not row:
@@ -414,17 +427,27 @@ def update_income_record(record_id: int):
         cur = conn.cursor()
         
         includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
-        
+        has_salary_link = column_exists(conn, "income_records", "salary_payment_id")
         if includes_lab_cost:
-             cur.execute("SELECT amount, doctor_id, salary_payment_id, lab_cost FROM income_records WHERE id = %s", (record_id,))
+            cur.execute(
+                f"SELECT amount, doctor_id, "
+                f'{"salary_payment_id" if has_salary_link else "NULL"}, '
+                f"lab_cost FROM income_records WHERE id = %s",
+                (record_id,),
+            )
         else:
-             cur.execute("SELECT amount, doctor_id, salary_payment_id, 0 FROM income_records WHERE id = %s", (record_id,))
+            cur.execute(
+                f"SELECT amount, doctor_id, "
+                f'{"salary_payment_id" if has_salary_link else "NULL"}, '
+                f"0 FROM income_records WHERE id = %s",
+                (record_id,),
+            )
 
         old_row = cur.fetchone()
         if not old_row:
-             conn.rollback()
-             return jsonify({"error": "not_found"}), 404
-             
+            conn.rollback()
+            return jsonify({"error": "not_found"}), 404
+            
         old_amount = float(old_row[0])
         doctor_id = int(old_row[1])
         salary_payment_id = old_row[2]

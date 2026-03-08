@@ -43,6 +43,7 @@ export default function AddIncomePage() {
   const [receiptReasons, setReceiptReasons] = useState([]);
   const [medicines, setMedicines] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [patientSuggestions, setPatientSuggestions] = useState([]);
 
   useEffect(() => {
     if (isEdit) {
@@ -113,6 +114,7 @@ export default function AddIncomePage() {
       setSearching(true);
       try {
         const results = await api.get(`/patients/search?q=${encodeURIComponent(q)}`);
+        setPatientSuggestions(results || []);
         if (results && results.length > 0) {
           const top = results[0];
           if (top && (top.exact || top.last_name.toLowerCase() === q.trim().split(" ")[0].toLowerCase())) {
@@ -138,9 +140,11 @@ export default function AddIncomePage() {
           }
         } else {
           setForm((p) => ({ ...p, banner: { found: false, text: t("income.banner.new_patient") }, lockedPatient: null }));
+          setPatientSuggestions([]);
         }
       } catch {
         setForm((p) => ({ ...p, banner: null, lockedPatient: null }));
+        setPatientSuggestions([]);
       } finally {
         setSearching(false);
       }
@@ -314,6 +318,32 @@ export default function AddIncomePage() {
               onBlur={onPatientBlur}
               disabled={form.patientLocked || saving}
             />
+            {!form.patientLocked && patientSuggestions.length > 0 && (
+              <div className="dropdown" role="listbox" style={{ marginTop: '6px', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)', maxHeight: '180px', overflowY: 'auto' }}>
+                {patientSuggestions.map((p) => (
+                  <div
+                    key={p.id}
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      const name = [p.last_name, p.first_name].filter(Boolean).join(" ");
+                      setForm((prev) => ({
+                        ...prev,
+                        patientInput: name,
+                        patientLocked: true,
+                        lockedPatient: { id: p.id, first_name: p.first_name, last_name: p.last_name },
+                        banner: { found: true, text: name }
+                      }));
+                      setPatientSuggestions([]);
+                    }}
+                    style={{ padding: '8px 10px', cursor: 'pointer' }}
+                  >
+                    {[p.last_name, p.first_name].filter(Boolean).join(" ")}
+                  </div>
+                ))}
+              </div>
+            )}
             {form.banner && (
               <div
                 role="status"
@@ -468,7 +498,7 @@ export default function AddIncomePage() {
                 <option value="">{t("income.form.select_doctor_placeholder")}</option>
                 {doctors.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.last_name}
+                    {[d.first_name, d.last_name].filter(Boolean).join(" ")}
                   </option>
                 ))}
               </select>

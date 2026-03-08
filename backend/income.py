@@ -96,6 +96,14 @@ def ensure_patient(conn, patient_id: Optional[int], patient_data: Dict[str, Any]
             """
             INSERT INTO patients (first_name, last_name, phone, email, street_address, city, zip_code)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (last_name, first_name)
+            DO UPDATE SET
+                first_name     = COALESCE(EXCLUDED.first_name, patients.first_name),
+                phone          = COALESCE(NULLIF(EXCLUDED.phone, ''), patients.phone),
+                email          = COALESCE(NULLIF(EXCLUDED.email, ''), patients.email),
+                street_address = COALESCE(NULLIF(EXCLUDED.street_address, ''), patients.street_address),
+                city           = COALESCE(NULLIF(EXCLUDED.city, ''), patients.city),
+                zip_code       = COALESCE(NULLIF(EXCLUDED.zip_code, ''), patients.zip_code)
             RETURNING id
             """,
             (first_name, last_name, phone, email, street_address, city, zip_code),
@@ -105,6 +113,11 @@ def ensure_patient(conn, patient_id: Optional[int], patient_data: Dict[str, Any]
             """
             INSERT INTO patients (first_name, last_name, phone, email)
             VALUES (%s, %s, %s, %s)
+            ON CONFLICT (last_name, first_name)
+            DO UPDATE SET
+                first_name = COALESCE(EXCLUDED.first_name, patients.first_name),
+                phone      = COALESCE(NULLIF(EXCLUDED.phone, ''), patients.phone),
+                email      = COALESCE(NULLIF(EXCLUDED.email, ''), patients.email)
             RETURNING id
             """,
             (first_name, last_name, phone, email),

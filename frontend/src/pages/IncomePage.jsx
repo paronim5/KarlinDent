@@ -1,92 +1,73 @@
 import { useEffect, useMemo, useState } from "react";
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend } from "chart.js";
-import { Bar, Line } from "react-chartjs-2";
+import { Line } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend
+} from "chart.js";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/client.js";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
-
-function DateRangePicker({ from, to, onChange }) {
-  const { t } = useTranslation();
-  return (
-    <div className="date-range">
-      <label>
-        {t("income.date_range.from")}
-        <input
-          className="pixel-input"
-          type="date"
-          value={from}
-          onChange={(event) => onChange({ from: event.target.value, to })}
-        />
-      </label>
-      <label>
-        {t("income.date_range.to")}
-        <input
-          className="pixel-input"
-          type="date"
-          value={to}
-          onChange={(event) => onChange({ from, to: event.target.value })}
-        />
-      </label>
-    </div>
-  );
-}
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
 export default function IncomePage() {
   const { t } = useTranslation();
   const api = useApi();
-  const today = new Date().toISOString().slice(0, 10);
+  const navigate = useNavigate();
+  const storedPeriod = typeof window !== "undefined" ? window.localStorage.getItem("globalPeriod") : null;
 
   const [records, setRecords] = useState([]);
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
+  const [period, setPeriod] = useState(storedPeriod || "month");
+  const [customRange, setCustomRange] = useState({ from: "", to: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [patients, setPatients] = useState([]);
-  const [patientQuery, setPatientQuery] = useState("");
-  const [doctors, setDoctors] = useState([]);
-  const [statsQuery, setStatsQuery] = useState("");
-  const [doctorStats, setDoctorStats] = useState(null);
-  const [statsLoading, setStatsLoading] = useState(false);
-
-  const [form, setForm] = useState({
-    patientId: "",
-    newPatientLastName: "",
-    doctorId: "",
-    amount: "",
-    paymentMethod: "cash",
-    labWork: false,
-    labCost: "",
-    note: ""
-  });
-  const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [deletingIds, setDeletingIds] = useState([]);
-  const [confirmState, setConfirmState] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState([]);
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      x: {
-        grid: { color: "rgba(255, 215, 0, 0.1)" },
-        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
-      },
-      y: {
-        grid: { color: "rgba(255, 215, 0, 0.1)" },
-        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
-      }
-    },
-    plugins: {
-      legend: {
-        position: "bottom",
-        labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
-      }
+  const periodLabels = useMemo(
+    () => ({
+      year: t("income.period.year"),
+      month: t("income.period.month"),
+      week: t("income.period.week"),
+      day: t("income.period.day"),
+      custom: "Custom"
+    }),
+    [t]
+  );
+
+  const computeRange = (selectedPeriod) => {
+    if (selectedPeriod === "custom") {
+        return { from: customRange.from, to: customRange.to };
     }
+    const now = new Date();
+    const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    let fromDate = new Date(toDate);
+    if (selectedPeriod === "day") {
+      fromDate = new Date(toDate);
+    } else if (selectedPeriod === "week") {
+      fromDate = new Date(toDate);
+      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+    } else if (selectedPeriod === "month") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+    } else if (selectedPeriod === "year") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+    }
+    const format = (d) => d.toISOString().slice(0, 10);
+    return { from: format(fromDate), to: format(toDate) };
   };
 
-  const loadRecords = async (rangeFrom = from, rangeTo = to) => {
+  const range = useMemo(() => computeRange(period), [period, customRange]);
+
+  const loadRecords = async (rangeFrom = range.from, rangeTo = range.to) => {
+    if (!rangeFrom || !rangeTo) return;
     setLoading(true);
     setError("");
     try {
@@ -104,109 +85,25 @@ export default function IncomePage() {
     }
   };
 
-  const loadDoctors = async () => {
-    try {
-      const items = await api.get("/staff?role=doctor");
-      setDoctors(items);
-    } catch {
-      setDoctors([]);
+  useEffect(() => {
+    if (period !== "custom" || (customRange.from && customRange.to)) {
+        loadRecords(range.from, range.to);
     }
-  };
 
-  const searchPatients = async (query) => {
-    try {
-      const items = await api.get(`/income/patients?q=${encodeURIComponent(query)}`);
-      setPatients(items);
-    } catch {
-      setPatients([]);
-    }
-  };
-
-  const loadDoctorStats = async (query) => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setDoctorStats(null);
-      return;
-    }
-    setStatsLoading(true);
-    setError("");
-    try {
-      const data = await api.get(
-        `/income/stats/doctors-by-patient?patient_last_name=${encodeURIComponent(trimmed)}`
-      );
-      setDoctorStats(data);
-    } catch (err) {
-      setDoctorStats(null);
-      setError(err.message || "Unable to load doctor statistics");
-    } finally {
-      setStatsLoading(false);
-    }
-  };
+    const handleRefresh = () => loadRecords(range.from, range.to);
+    window.addEventListener("incomeAdded", handleRefresh);
+    return () => window.removeEventListener("incomeAdded", handleRefresh);
+  }, [period, customRange]);
 
   useEffect(() => {
-    loadRecords();
-    loadDoctors();
-    searchPatients("");
-  }, []);
-
-  const handleRangeChange = ({ from: newFrom, to: newTo }) => {
-    setFrom(newFrom);
-    setTo(newTo);
-    if (newFrom && newTo) {
-      loadRecords(newFrom, newTo);
-    }
-  };
-
-  const handlePatientSearchChange = (event) => {
-    const query = event.target.value;
-    setPatientQuery(query);
-    searchPatients(query);
-  };
-
-  const handleStatsSearch = () => {
-    loadDoctorStats(statsQuery);
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setSaving(true);
-    setError("");
-
-    try {
-      const payload = {
-        doctor_id: form.doctorId ? Number(form.doctorId) : null,
-        amount: Number(form.amount),
-        lab_cost: form.labWork ? Number(form.labCost || 0) : 0,
-        payment_method: form.paymentMethod,
-        note: form.note || undefined
-      };
-
-      if (form.patientId) {
-        payload.patient_id = Number(form.patientId);
-      } else {
-        payload.patient = {
-          last_name: form.newPatientLastName
-        };
+    const handler = (event) => {
+      if (event?.detail?.period) {
+        setPeriod(event.detail.period);
       }
-
-      await api.post("/income/records", payload);
-      setForm({
-        patientId: "",
-        newPatientLastName: "",
-        doctorId: "",
-        amount: "",
-        paymentMethod: "cash",
-        labWork: false,
-        labCost: "",
-        note: ""
-      });
-      await loadRecords();
-    } catch (err) {
-      setError(err.message || "Unable to save income record");
-    } finally {
-      setSaving(false);
-    }
-  };
+    };
+    window.addEventListener("periodChanged", handler);
+    return () => window.removeEventListener("periodChanged", handler);
+  }, []);
 
   const dailyTotal = useMemo(
     () => records.reduce((sum, item) => sum + item.amount, 0),
@@ -229,6 +126,62 @@ export default function IncomePage() {
     );
   }, [records]);
 
+  const chartData = useMemo(() => {
+    if (!records || records.length === 0) return null;
+    const groups = {};
+    records.forEach((r) => {
+      const d = r.service_date;
+      if (!groups[d]) groups[d] = 0;
+      groups[d] += r.amount || 0;
+    });
+    const labels = Object.keys(groups).sort();
+    const data = labels.map((l) => groups[l]);
+    return {
+      labels,
+      datasets: [
+        {
+          label: t("clinic.chart.income"),
+          borderColor: "#2ecc40",
+          backgroundColor: "rgba(46, 204, 64, 0.1)",
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: "#2ecc40",
+          data,
+          tension: 0.2,
+        },
+      ],
+    };
+  }, [records, t]);
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } },
+      },
+      y: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } },
+      },
+    },
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } },
+      },
+      tooltip: {
+        titleFont: { family: "VT323", size: 14 },
+        bodyFont: { family: "VT323", size: 14 },
+      },
+    },
+  };
+
+  const isJsdom = typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent || "");
+  const canRenderChart = !isJsdom;
+
   const toggleSelect = (id) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -245,234 +198,256 @@ export default function IncomePage() {
 
   const isDeleting = (id) => deletingIds.includes(id);
 
-  const performDelete = async (ids) => {
+  const requestDelete = (ids) => {
+    const hasPaid = ids.some(id => records.find(r => r.id === id)?.salary_payment_id);
+    if (hasPaid) {
+      setPendingDeleteIds(ids);
+      setShowDeleteModal(true);
+    } else {
+      performDelete(ids, "delete_only");
+    }
+  };
+
+  const performDelete = async (ids, mode = "delete_only") => {
     setDeletingIds((prev) => [...prev, ...ids]);
     setError("");
     try {
       for (const id of ids) {
-        await api.delete(`/income/records/${id}`);
+        await api.delete(`/income/records/${id}?mode=${mode}`);
       }
       await loadRecords();
     } catch (err) {
       setError(err.message || "Unable to delete income records");
     } finally {
       setDeletingIds([]);
-      setConfirmState(null);
+      setShowDeleteModal(false);
+      setPendingDeleteIds([]);
     }
   };
 
-  const doctorComparisonData = useMemo(() => {
-    if (!doctorStats || !doctorStats.doctors || doctorStats.doctors.length === 0) {
-      return null;
-    }
-    const labels = doctorStats.doctors.map(
-      (doc) => `${doc.last_name} ${doc.first_name}`
-    );
-    const incomeData = doctorStats.doctors.map((doc) => doc.total_income);
-    const commissionData = doctorStats.doctors.map((doc) => doc.total_commission);
-    return {
-      labels,
-      datasets: [
-        {
-          label: "TOTAL INCOME",
-          data: incomeData,
-          backgroundColor: "rgba(0, 212, 255, 0.7)",
-          borderColor: "#00d4ff",
-          borderWidth: 2
-        },
-        {
-          label: "TOTAL COMMISSION",
-          data: commissionData,
-          backgroundColor: "rgba(46, 204, 64, 0.7)",
-          borderColor: "#2ecc40",
-          borderWidth: 2
-        }
-      ]
-    };
-  }, [doctorStats]);
-
-  const monthlyTrendsData = useMemo(() => {
-    if (!doctorStats || !doctorStats.doctors || doctorStats.doctors.length === 0) {
-      return null;
-    }
-    const monthSet = new Set();
-    doctorStats.doctors.forEach((doc) => {
-      doc.monthly.forEach((item) => {
-        monthSet.add(item.month);
-      });
-    });
-    const labels = Array.from(monthSet).sort();
-    if (labels.length === 0) {
-      return null;
-    }
-    const datasets = doctorStats.doctors.map((doc, index) => {
-      const colors = ["#00d4ff", "#ffd700", "#2ecc40", "#e03030"];
-      const color = colors[index % colors.length];
-      return {
-        label: `${doc.last_name} ${doc.first_name}`,
-        data: labels.map((label) => {
-          const item = doc.monthly.find((m) => m.month === label);
-          return item ? item.total_income : 0;
-        }),
-        borderColor: color,
-        backgroundColor: color + "33",
-        tension: 0.2,
-        borderWidth: 3,
-        pointRadius: 4
-      };
-    });
-    return { labels, datasets };
-  }, [doctorStats]);
-
-  const doctorPatientRows = useMemo(() => {
-    if (!doctorStats || !doctorStats.doctors || doctorStats.doctors.length === 0) {
-      return [];
-    }
-    const rows = [];
-    doctorStats.doctors.forEach((doc) => {
-      doc.patients.forEach((patient) => {
-        rows.push({
-          doctorId: doc.id,
-          doctorName: `${doc.last_name} ${doc.first_name}`,
-          patientId: patient.id,
-          patientName: `${patient.last_name}`,
-          totalIncome: patient.total_income,
-          totalCommission: patient.total_commission
-        });
-      });
-    });
-    return rows;
-  }, [doctorStats]);
-
   return (
     <>
-      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
-      
-      <div className="two-col">
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <div className="panel-title">{t("income.title")}</div>
-              <div className="panel-meta">{records.length} transactions</div>
+      {showDeleteModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">Delete Paid Records</div>
+            <div className="modal-body">
+              <p>Some selected records have already been paid out in salaries.</p>
+              <p>How do you want to handle the salary adjustment?</p>
             </div>
-            <div className="topbar-actions">
-              <button className="btn btn-ghost">{t("common.delete")} Selected</button>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowDeleteModal(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => performDelete(pendingDeleteIds, "adjust_next")}>
+                Delete & Deduct from Next Salary
+              </button>
+              <button className="btn btn-warning" onClick={() => performDelete(pendingDeleteIds, "ignore")}>
+                Delete & Ignore (Keep Salary)
+              </button>
             </div>
-          </div>
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th><input type="checkbox" /></th>
-                  <th>{t("income.table.patient")}</th>
-                  <th>{t("income.table.doctor")}</th>
-                  <th>{t("income.table.amount")}</th>
-                  <th>{t("income.form.lab_cost")}</th>
-                  <th>{t("income.table.method")}</th>
-                  <th>{t("income.table.date")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.map((record) => (
-                  <tr key={record.id}>
-                    <td><input type="checkbox" /></td>
-                    <td>{record.patient.last_name}</td>
-                    <td>{record.doctor.last_name}</td>
-                    <td className="mono" style={{ color: "var(--green)" }}>
-                      {record.amount.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
-                    </td>
-                    <td className="mono" style={{ color: record.lab_cost > 0 ? "var(--red)" : "inherit" }}>
-                      {record.lab_cost > 0 ? record.lab_cost.toLocaleString(undefined, { style: "currency", currency: "CZK" }) : "-"}
-                    </td>
-                    <td>
-                      <span className={`pill ${record.payment_method === 'cash' ? 'pill-green' : 'pill-blue'}`}>
-                        {t(`income.form.${record.payment_method}`)}
-                      </span>
-                    </td>
-                    <td className="mono">{record.service_date}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
+      )}
 
-        <div className="quick-form">
-          <div className="panel-title" style={{ marginBottom: '16px' }}>{t("income.form.add_record")}</div>
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <div className="form-label">{t("income.form.patient")}</div>
-              <select className="form-input" value={form.patientId} onChange={(e) => setForm(p => ({...p, patientId: e.target.value}))}>
-                <option value="">+ {t("income.form.new_patient")}</option>
-                {patients.map((p) => <option key={p.id} value={p.id}>{p.last_name}</option>)}
-              </select>
-            </div>
-            {!form.patientId && (
-              <div>
-                <div className="form-label">{t("income.form.new_patient")}</div>
-                <input className="form-input" placeholder="e.g. Smith" value={form.newPatientLastName} onChange={(e) => setForm(p => ({...p, newPatientLastName: e.target.value}))} />
-              </div>
-            )}
-            <div>
-              <div className="form-label">{t("income.form.doctor")}</div>
-              <select className="form-input" required value={form.doctorId} onChange={(e) => setForm(p => ({...p, doctorId: e.target.value}))}>
-                <option value="">Select doctor...</option>
-                {doctors.map((d) => <option key={d.id} value={d.id}>{d.last_name}</option>)}
-              </select>
-            </div>
-            <div className="form-grid">
-              <div>
-                <div className="form-label">{t("income.form.amount")}</div>
-                <div className="amount-input-wrap">
-                  <span className="amount-prefix">$</span>
-                  <input className="form-input" type="number" placeholder="0.00" value={form.amount} onChange={(e) => setForm(p => ({...p, amount: e.target.value}))} />
-                </div>
-              </div>
-              <div>
-                <div className="form-label">{t("income.form.payment_method")}</div>
-                <div className="toggle-group">
-                  <div className={`toggle-opt ${form.paymentMethod === 'cash' ? 'on' : ''}`} onClick={() => setForm(p => ({...p, paymentMethod: 'cash'}))}>{t("income.form.cash")}</div>
-                  <div className={`toggle-opt ${form.paymentMethod === 'card' ? 'on' : ''}`} onClick={() => setForm(p => ({...p, paymentMethod: 'card'}))}>{t("income.form.card")}</div>
-                </div>
-              </div>
-            </div>
+      {error && (
+        <div className="form-error" role="alert">
+          {error}
+          <button
+            className="btn btn-ghost"
+            style={{ marginLeft: "12px", padding: "6px 12px", fontSize: "12px" }}
+            onClick={() => loadRecords(range.from, range.to)}
+          >
+            {t("common.retry")}
+          </button>
+        </div>
+      )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-              <input 
-                type="checkbox" 
-                id="labWork"
-                checked={form.labWork} 
-                onChange={(e) => setForm(p => ({...p, labWork: e.target.checked}))}
-                style={{ width: '18px', height: '18px' }}
-              />
-              <label htmlFor="labWork" style={{ fontSize: '14px', color: 'var(--text)', cursor: 'pointer' }}>
-                {t("income.form.lab_work")}
-              </label>
-            </div>
+      <div className="stat-strip">
+        <div className="stat-card s-green">
+          <div className="stat-icon">↗</div>
+          <div className="stat-label">{t("income.stats.total")}</div>
+          <div className="stat-value">
+            {loading ? "—" : (paymentTotals.total || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+          </div>
+        </div>
+        <div className="stat-card s-blue">
+          <div className="stat-icon">◉</div>
+          <div className="stat-label">{t("income.stats.records")}</div>
+          <div className="stat-value">{loading ? "—" : records.length}</div>
+        </div>
+        <div className="stat-card s-orange">
+          <div className="stat-icon">◈</div>
+          <div className="stat-label">{t("income.stats.avg")}</div>
+          <div className="stat-value">
+            {loading
+              ? "—"
+              : (records.length > 0 ? paymentTotals.total / records.length : 0).toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "CZK"
+                })}
+          </div>
+        </div>
+      </div>
 
-            {form.labWork && (
-              <div className="panel" style={{ background: 'var(--bg-card)', border: '1px dashed var(--green)', padding: '12px', marginTop: '4px' }}>
-                <div className="form-label">{t("income.form.lab_cost")}</div>
-                <div className="amount-input-wrap">
-                  <span className="amount-prefix">$</span>
-                  <input 
-                    className="form-input" 
-                    type="number" 
-                    placeholder="0.00" 
-                    value={form.labCost} 
-                    onChange={(e) => setForm(p => ({...p, labCost: e.target.value}))} 
-                  />
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--subtext)', marginTop: '4px' }}>
-                  {t("income.form.lab_cost_note")}
-                </div>
+      <div className="panel" style={{ marginTop: '20px' }}>
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">{t("income.trend_title")}</div>
+            <div className="panel-meta" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {period !== 'custom' ? (
+                t("income.period_meta", { period: periodLabels[period] })
+              ) : (
+                <span>Custom Range</span>
+              )}
+              <div style={{ display: 'flex', gap: '8px', marginLeft: '10px' }}>
+                <input
+                  type="date"
+                  value={customRange.from}
+                  onChange={(e) => {
+                    setCustomRange((p) => ({ ...p, from: e.target.value }));
+                    setPeriod("custom");
+                  }}
+                  className="form-input"
+                  style={{ padding: "4px 8px", fontSize: "12px", width: "auto" }}
+                />
+                <span style={{ alignSelf: "center" }}>-</span>
+                <input
+                  type="date"
+                  value={customRange.to}
+                  onChange={(e) => {
+                    setCustomRange((p) => ({ ...p, to: e.target.value }));
+                    setPeriod("custom");
+                  }}
+                  className="form-input"
+                  style={{ padding: "4px 8px", fontSize: "12px", width: "auto" }}
+                />
               </div>
-            )}
+            </div>
+          </div>
+        </div>
+        <div className="chart-area" style={{ height: "300px", marginBottom: "20px" }}>
+          {canRenderChart && chartData && <Line data={chartData} options={chartOptions} />}
+        </div>
+      </div>
 
-            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }} disabled={saving}>
-              {saving ? t("common.loading") : `+ ${t("income.form.submit")}`}
+      <div className="panel" style={{ marginTop: '20px' }}>
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">{t("income.title")}</div>
+            <div className="panel-meta" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {period !== 'custom' ? (
+                    t("income.period_meta", { period: periodLabels[period] })
+                ) : (
+                    <span>Custom Range</span>
+                )}
+                <div style={{ display: 'flex', gap: '8px', marginLeft: '10px' }}>
+                    <input 
+                        type="date" 
+                        value={customRange.from} 
+                        onChange={(e) => {
+                            setCustomRange(p => ({...p, from: e.target.value}));
+                            setPeriod('custom');
+                        }}
+                        className="form-input"
+                        style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
+                    />
+                    <span style={{ alignSelf: 'center' }}>-</span>
+                    <input 
+                        type="date" 
+                        value={customRange.to} 
+                        onChange={(e) => {
+                            setCustomRange(p => ({...p, to: e.target.value}));
+                            setPeriod('custom');
+                        }}
+                        className="form-input"
+                        style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
+                    />
+                </div>
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <button className="btn btn-ghost" onClick={() => performDelete(selectedIds)} disabled={selectedIds.length === 0}>
+              {t("common.delete")} ({selectedIds.length})
             </button>
-          </form>
+          </div>
+        </div>
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" onChange={selectAllVisible} checked={selectedIds.length === records.length && records.length > 0} /></th>
+                <th>{t("income.table.patient")}</th>
+                <th>{t("income.table.doctor")}</th>
+                <th>{t("income.table.amount")}</th>
+                <th>{t("income.form.lab_cost")}</th>
+                <th>{t("income.table.method")}</th>
+                <th>{t("income.table.status")}</th>
+                <th>{t("income.table.date")}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                [...Array(4)].map((_, idx) => (
+                  <tr key={`s-${idx}`}>
+                    <td><div className="skeleton-line" style={{ width: "16px" }} /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                  </tr>
+                ))
+              )}
+              {!loading && records.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="empty-state">{t("income.empty_state")}</td>
+                </tr>
+              )}
+              {!loading && records.map((record) => (
+                <tr key={record.id} className={selectedIds.includes(record.id) ? "selected" : ""}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(record.id)}
+                      onChange={() => toggleSelect(record.id)}
+                    />
+                  </td>
+                  <td>{record.patient.last_name}</td>
+                  <td>{record.doctor.last_name}</td>
+                  <td className="mono" style={{ color: "var(--green)" }}>
+                    {(record.amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                  </td>
+                  <td className="mono" style={{ color: record.lab_cost > 0 ? "var(--red)" : "inherit" }}>
+                    {record.lab_cost > 0 ? (record.lab_cost || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" }) : "-"}
+                  </td>
+                  <td>
+                    <span className={`pill ${record.payment_method === 'cash' ? 'pill-green' : 'pill-blue'}`}>
+                      {t(`income.form.${record.payment_method}`)}
+                    </span>
+                  </td>
+                  <td>
+                    {record.salary_payment_id ? (
+                      <span className="pill pill-green">{t("income.table.paid")}</span>
+                    ) : (
+                      <span className="pill pill-yellow">{t("income.table.unpaid")}</span>
+                    )}
+                  </td>
+                  <td className="mono">{record.service_date}</td>
+                  <td>
+                    <button 
+                      className="btn btn-ghost" 
+                      style={{ padding: '4px 8px', fontSize: '12px' }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/income/edit/${record.id}`); }}
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </>

@@ -1,0 +1,7 @@
+BEGIN;
+CREATE TABLE IF NOT EXISTS medicine_presets (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(150) NOT NULL UNIQUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+COMMIT;

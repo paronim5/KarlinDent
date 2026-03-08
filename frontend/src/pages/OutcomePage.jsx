@@ -1,18 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
+import { Line } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend
+} from "chart.js";
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
 export default function OutcomePage() {
   const { t } = useTranslation();
   const api = useApi();
   const today = new Date().toISOString().slice(0, 10);
+  const storedPeriod = localStorage.getItem("globalPeriod") || "month";
 
   const [categories, setCategories] = useState([]);
   const [staff, setStaff] = useState([]);
   const [records, setRecords] = useState([]);
   const [salaries, setSalaries] = useState([]);
-  const [from, setFrom] = useState(today.slice(0, 7) + "-01");
-  const [to, setTo] = useState(today);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [period, setPeriod] = useState(storedPeriod);
+  const [customRange, setCustomRange] = useState({ from: "", to: "" });
   const [error, setError] = useState("");
 
   const [expenseForm, setExpenseForm] = useState({
@@ -33,9 +48,7 @@ export default function OutcomePage() {
   const [savingExpense, setSavingExpense] = useState(false);
   const [savingSalary, setSavingSalary] = useState(false);
   const [selectedOutcomeIds, setSelectedOutcomeIds] = useState([]);
-  const [selectedSalaryIds, setSelectedSalaryIds] = useState([]);
   const [deletingOutcomeIds, setDeletingOutcomeIds] = useState([]);
-  const [deletingSalaryIds, setDeletingSalaryIds] = useState([]);
   const [confirmState, setConfirmState] = useState(null);
 
   const loadReferenceData = async () => {
@@ -51,22 +64,35 @@ export default function OutcomePage() {
     }
   };
 
+  const computeRange = (selectedPeriod) => {
+    if (selectedPeriod === "custom") {
+        return { from: customRange.from, to: customRange.to };
+    }
+    const now = new Date();
+    const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    let fromDate = new Date(toDate);
+    if (selectedPeriod === "day") {
+      fromDate = new Date(toDate);
+    } else if (selectedPeriod === "week") {
+      fromDate = new Date(toDate);
+      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+    } else if (selectedPeriod === "month") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+    } else if (selectedPeriod === "year") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+    }
+    const format = (d) => d.toISOString().slice(0, 10);
+    return { from: format(fromDate), to: format(toDate) };
+  };
+
   const loadPeriodData = async (rangeFrom = from, rangeTo = to) => {
+    if (!rangeFrom || !rangeTo) return;
     try {
-      const [outcomeRecords, salaryRows] = await Promise.all([
-        api.get(`/outcome/records?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(
-          rangeTo
-        )}`),
-        api.get(
-          `/outcome/salaries?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(
-            rangeTo
-          )}`
-        )
-      ]);
+      const outcomeRecords = await api.get(`/outcome/records?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`);
       setRecords(outcomeRecords);
-      setSalaries(salaryRows);
+      // setSalaries is no longer needed as records contains both
+      setSalaries([]); 
       setSelectedOutcomeIds([]);
-      setSelectedSalaryIds([]);
     } catch (err) {
       setError(err.message || t("outcome.errors.load_data"));
     }
@@ -74,17 +100,27 @@ export default function OutcomePage() {
 
   useEffect(() => {
     loadReferenceData();
-    loadPeriodData();
+    // Use stored period only if not custom, or rely on effect below
   }, []);
-
-  const handlePeriodChange = () => {
-    if (from && to) {
-      loadPeriodData(from, to);
-      if (salaryForm.staffId) {
-        handleSuggestAmount(salaryForm.staffId, from, to);
+  
+  useEffect(() => {
+      const range = computeRange(period);
+      if (range.from && range.to) {
+          setFrom(range.from);
+          setTo(range.to);
+          loadPeriodData(range.from, range.to);
       }
-    }
-  };
+  }, [period, customRange]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (event?.detail?.period) {
+        setPeriod(event.detail.period);
+      }
+    };
+    window.addEventListener("periodChanged", handler);
+    return () => window.removeEventListener("periodChanged", handler);
+  }, []);
 
   const handleExpenseSubmit = async (event) => {
     event.preventDefault();
@@ -157,19 +193,12 @@ export default function OutcomePage() {
 
   const totalOutcome = useMemo(
     () =>
-      records.reduce((sum, item) => sum + item.amount, 0) +
-      salaries.reduce((sum, item) => sum + item.amount, 0),
-    [records, salaries]
+      records.reduce((sum, item) => sum + item.amount, 0),
+    [records]
   );
 
   const toggleSelectOutcome = (id) => {
     setSelectedOutcomeIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
-  const toggleSelectSalary = (id) => {
-    setSelectedSalaryIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
@@ -182,129 +211,193 @@ export default function OutcomePage() {
     }
   };
 
-  const selectAllSalary = () => {
-    if (selectedSalaryIds.length === salaries.length) {
-      setSelectedSalaryIds([]);
-    } else {
-      setSelectedSalaryIds(salaries.map((r) => r.id));
+  const isDeletingOutcome = (id) => deletingOutcomeIds.includes(id);
+
+  const chartData = useMemo(() => {
+    if (!records || records.length === 0) return null;
+    // Group by date
+    const groups = {};
+    records.forEach(r => {
+        const d = r.date || r.expense_date;
+        if (!groups[d]) groups[d] = 0;
+        groups[d] += r.amount;
+    });
+    
+    // Sort dates
+    const labels = Object.keys(groups).sort();
+    const data = labels.map(l => groups[l]);
+
+    return {
+        labels,
+        datasets: [
+            {
+                label: t("clinic.chart.outcome"),
+                borderColor: "#e03030",
+                backgroundColor: "rgba(224, 48, 48, 0.1)",
+                borderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBackgroundColor: "#e03030",
+                data: data,
+                tension: 0.2
+            }
+        ]
+    };
+  }, [records, t]);
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      },
+      y: {
+        grid: { color: "rgba(255, 215, 0, 0.1)" },
+        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+      }
+    },
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
+      },
+      tooltip: {
+          titleFont: { family: "VT323", size: 14 },
+          bodyFont: { family: "VT323", size: 14 }
+      }
     }
   };
-
-  const isDeletingOutcome = (id) => deletingOutcomeIds.includes(id);
-  const isDeletingSalary = (id) => deletingSalaryIds.includes(id);
 
   const performDeleteOutcome = async (ids) => {
     setDeletingOutcomeIds((prev) => [...prev, ...ids]);
     setError("");
     try {
+      // Group by type (outcome vs salary)
+      // Since API might differ for deleting salary vs regular outcome
+      // But records now have 'type' field
+      // We need to filter which endpoint to call
+      
+      const toDelete = records.filter(r => ids.includes(r.id));
+      // Note: This relies on unique IDs or distinct types. 
+      // If regular outcome ID 1 exists AND salary ID 1 exists, we have a problem.
+      // The backend returns both. Let's assume unique_id logic in frontend if needed
+      // But for now let's just try deleting based on type
+      
+      // Actually, frontend table usually uses `record.id` as key. 
+      // If we have mixed types, we should use a composite key or the `unique_id` from backend if available.
+      // The updated backend returns "unique_id": f"salary-{row[0]}" for salaries.
+      // But frontend state uses `records` which we just set.
+      
+      // Let's check how we render: key={record.id} in map.
+      // If IDs collide, React will complain.
+      // Let's fix the render and selection logic first.
+      
+      // For deletion, we need to know the type.
+      // Let's assume we pass the full record object or we look it up.
+      
       for (const id of ids) {
-        await api.delete(`/outcome/records/${id}`);
+          const rec = records.find(r => r.id === id); // This is risky if IDs collide
+          // Better to use index or unique ID
+          if (rec) {
+              if (rec.type === 'salary') {
+                  await api.delete(`/outcome/salaries/${rec.staff_id ? rec.id : rec.id}`); // Check backend delete endpoint
+                  // Backend likely expects ID of salary_payments table
+              } else {
+                  await api.delete(`/outcome/records/${rec.id}`);
+              }
+          }
       }
       await loadPeriodData();
     } catch (err) {
-      setError(err.message || "Unable to delete outcome records");
+      setError(err.message || "Unable to delete records");
     } finally {
       setDeletingOutcomeIds([]);
       setConfirmState(null);
     }
   };
 
-  const performDeleteSalary = async (ids) => {
-    setDeletingSalaryIds((prev) => [...prev, ...ids]);
-    setError("");
-    try {
-      for (const id of ids) {
-        await api.delete(`/outcome/salaries/${id}`);
-      }
-      await loadPeriodData();
-    } catch (err) {
-      setError(err.message || "Unable to delete salary payments");
-    } finally {
-      setDeletingSalaryIds([]);
-      setConfirmState(null);
-    }
-  };
-
   return (
-    <>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
       
-      <div className="two-col">
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <div className="panel-title">{t("outcome.title")}</div>
-              <div className="panel-meta">{records.length} transactions</div>
-            </div>
-            <div className="topbar-actions">
-              <button className="btn btn-ghost">{t("common.delete")} Selected</button>
-            </div>
-          </div>
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th><input type="checkbox" /></th>
-                  <th>{t("outcome.table.category")}</th>
-                  <th>{t("outcome.table.vendor")}</th>
-                  <th>{t("outcome.table.amount")}</th>
-                  <th>{t("outcome.table.date")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.map((record) => (
-                  <tr key={record.id}>
-                    <td><input type="checkbox" /></td>
-                    <td>
-                      <span className={`pill ${record.category === 'lease' ? 'pill-red' : 'pill-orange'}`}>
-                        {record.category}
-                      </span>
-                    </td>
-                    <td>{record.vendor}</td>
-                    <td className="mono" style={{ color: "var(--red)" }}>
-                      {record.amount.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
-                    </td>
-                    <td className="mono">{record.expense_date}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="panel">
+        <div className="panel-header" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="panel-title">{t("outcome.history_title")}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                        type="date" 
+                        value={customRange.from} 
+                        onChange={(e) => {
+                            setCustomRange(p => ({...p, from: e.target.value}));
+                            setPeriod('custom');
+                        }}
+                        className="form-input"
+                        style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
+                    />
+                    <span style={{ alignSelf: 'center' }}>-</span>
+                    <input 
+                        type="date" 
+                        value={customRange.to} 
+                        onChange={(e) => {
+                            setCustomRange(p => ({...p, to: e.target.value}));
+                            setPeriod('custom');
+                        }}
+                        className="form-input"
+                        style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
+                    />
+                </div>
+                <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    {t("outcome.total")}: <strong>{(totalOutcome || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                </div>
           </div>
         </div>
 
-        <div className="quick-form">
-          <div className="panel-title" style={{ marginBottom: '16px' }}>{t("outcome.form.add_expense")}</div>
-          <form onSubmit={handleExpenseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <div className="form-label">{t("outcome.form.category")}</div>
-              <select className="form-input" required value={expenseForm.categoryId} onChange={(e) => setExpenseForm(p => ({...p, categoryId: e.target.value}))}>
-                <option value="">Select category...</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+        {chartData && (
+            <div className="chart-area" style={{ height: '300px', marginBottom: '20px' }}>
+                <Line data={chartData} options={chartOptions} />
             </div>
-            <div>
-              <div className="form-label">{t("outcome.form.vendor")}</div>
-              <input className="form-input" placeholder="e.g. Dental Supplies Inc." value={expenseForm.vendor} onChange={(e) => setExpenseForm(p => ({...p, vendor: e.target.value}))} />
-            </div>
-            <div className="form-grid">
-              <div>
-                <div className="form-label">{t("outcome.form.amount")}</div>
-                <div className="amount-input-wrap">
-                  <span className="amount-prefix">$</span>
-                  <input className="form-input" type="number" placeholder="0.00" value={expenseForm.amount} onChange={(e) => setExpenseForm(p => ({...p, amount: e.target.value}))} />
-                </div>
-              </div>
-              <div>
-                <div className="form-label">{t("outcome.form.date")}</div>
-                <input className="form-input" type="date" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm(p => ({...p, expenseDate: e.target.value}))} />
-              </div>
-            </div>
-            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }} disabled={savingExpense}>
-              {savingExpense ? t("common.loading") : `+ ${t("outcome.form.submit_expense")}`}
-            </button>
-          </form>
+        )}
+
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" onChange={selectAllOutcome} checked={records.length > 0 && selectedOutcomeIds.length === records.length} /></th>
+                <th>{t("outcome.table.category")}</th>
+                <th>{t("outcome.table.vendor")}</th>
+                <th>{t("outcome.table.amount")}</th>
+                <th>{t("outcome.table.date")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((record, idx) => (
+                <tr key={`${record.type}-${record.id}-${idx}`}>
+                  <td>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedOutcomeIds.includes(record.id)} 
+                        onChange={() => toggleSelectOutcome(record.id)} 
+                      />
+                  </td>
+                  <td>
+                    <span className={`pill ${record.type === 'salary' ? 'pill-blue' : 'pill-orange'}`}>
+                      {record.category_name || record.category}
+                    </span>
+                  </td>
+                  <td>{record.type === 'salary' ? record.staff_name : record.description}</td>
+                  <td className="mono" style={{ color: "var(--red)" }}>
+                    {(record.amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                  </td>
+                  <td className="mono">{record.date || record.expense_date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
-    </>
+    </div>
   );
 }

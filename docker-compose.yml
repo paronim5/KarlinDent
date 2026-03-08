@@ -11,6 +11,9 @@ services:
       - db_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./migrations/001_add_staff_password_and_vendor.sql:/docker-entrypoint-initdb.d/02_add_staff_password_and_vendor.sql:ro
+      - ./migrations/002_add_lab_cost_to_income.sql:/docker-entrypoint-initdb.d/03_add_lab_cost_to_income.sql:ro
+      - ./migrations/003_add_medicine_presets.sql:/docker-entrypoint-initdb.d/04_add_medicine_presets.sql:ro
+      - ./migrations/004_add_patient_address.sql:/docker-entrypoint-initdb.d/05_add_patient_address.sql:ro
 
   backend:
     build: ./backend
@@ -23,6 +26,8 @@ services:
       DB_USER: policlinic
       DB_PASSWORD: policlinic
       SECRET_KEY: change-me
+    volumes:
+      - ./backend:/app/backend
     ports:
       - "5000:5000"
 

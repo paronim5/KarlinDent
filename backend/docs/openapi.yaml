@@ -81,6 +81,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Patient"
+  /api/patients/search:
+    get:
+      summary: Search patients by last name and optional first name
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+            description: "LastName or LastName FirstName"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PatientSearchResult"
   /api/income/records:
     get:
       summary: List income records
@@ -337,12 +356,38 @@ components:
           type: integer
         first_name:
           type: string
+          nullable: true
         last_name:
           type: string
         phone:
           type: string
         email:
           type: string
+    PatientSearchResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+        exact:
+          type: boolean
+        banner:
+          type: object
+          nullable: true
+          properties:
+            total_paid:
+              type: number
+            last_treatment_doctor:
+              type: string
+              nullable: true
+            last_treatment_date:
+              type: string
+              format: date
+              nullable: true
     IncomeRecord:
       type: object
       properties:
@@ -540,4 +585,3 @@ components:
           type: number
         pnl:
           type: number
-

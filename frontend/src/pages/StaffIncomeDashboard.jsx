@@ -17,9 +17,9 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 export default function StaffIncomeDashboard() {
   const api = useApi();
   const navigate = useNavigate();
-  const today = new Date().toISOString().slice(0, 10);
-  const [from, setFrom] = useState(today.slice(0, 7) + "-01");
-  const [to, setTo] = useState(today);
+  const storedPeriod = localStorage.getItem("globalPeriod") || "month";
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
@@ -62,8 +62,41 @@ export default function StaffIncomeDashboard() {
     }
   };
 
+  const computeRange = (selectedPeriod) => {
+    const now = new Date();
+    const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    let fromDate = new Date(toDate);
+    if (selectedPeriod === "day") {
+      fromDate = new Date(toDate);
+    } else if (selectedPeriod === "week") {
+      fromDate = new Date(toDate);
+      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+    } else if (selectedPeriod === "month") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+    } else if (selectedPeriod === "year") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+    }
+    const format = (d) => d.toISOString().slice(0, 10);
+    return { from: format(fromDate), to: format(toDate) };
+  };
+
   useEffect(() => {
-    loadDashboard();
+    const initial = computeRange(storedPeriod);
+    setFrom(initial.from);
+    setTo(initial.to);
+    loadDashboard(initial.from, initial.to);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (event?.detail?.from && event?.detail?.to) {
+        setFrom(event.detail.from);
+        setTo(event.detail.to);
+        loadDashboard(event.detail.from, event.detail.to);
+      }
+    };
+    window.addEventListener("periodChanged", handler);
+    return () => window.removeEventListener("periodChanged", handler);
   }, []);
 
   const handleApplyRange = () => {
@@ -257,4 +290,3 @@ export default function StaffIncomeDashboard() {
     </>
   );
 }
-

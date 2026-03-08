@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useApi } from "../api/client.js";
 
 export default function StaffRolePage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const api = useApi();
   const today = new Date().toISOString().slice(0, 10);
   const [error, setError] = useState("");
@@ -12,6 +13,7 @@ export default function StaffRolePage() {
   const [timesheets, setTimesheets] = useState([]);
   const [staff, setStaff] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [payingSalary, setPayingSalary] = useState(false);
   const [form, setForm] = useState({
     workDate: today,
     startTime: "09:00",
@@ -32,7 +34,11 @@ export default function StaffRolePage() {
       setStaff(me || null);
       setTimesheets(ts);
     } catch (err) {
-      setError(err.message || "Unable to load timesheets");
+      const msg = err.message;
+      if (msg === "staff_not_found") setError("Staff member not found.");
+      else if (msg === "invalid_staff") setError("Select a valid staff member.");
+      else if (msg === "not_found") setError("Timesheets are unavailable for this staff member.");
+      else setError(err.message || "Unable to load timesheets");
     }
   };
 
@@ -47,14 +53,48 @@ export default function StaffRolePage() {
 
   const totalWages = useMemo(() => {
     const base = staff && staff.base_salary ? Number(staff.base_salary) : 0;
-    return (totalHours * base).toFixed(2);
+    return Number((totalHours * base).toFixed(2));
   }, [staff, totalHours]);
+
+  const baseRate = staff && staff.base_salary ? Number(staff.base_salary) : 0;
+
+  const handleRecordSalary = async () => {
+    setPayingSalary(true);
+    setError("");
+    try {
+      if (!staff) {
+        setError("Staff member not found.");
+        return;
+      }
+      if (!from || !to) {
+        setError("Select a valid date range.");
+        return;
+      }
+      if (totalHours <= 0) {
+        setError("No hours recorded for selected period.");
+        return;
+      }
+      const params = new URLSearchParams();
+      params.set("tab", "salary");
+      params.set("staff_id", String(id));
+      params.set("amount", totalWages.toFixed(2));
+      params.set("from", from);
+      params.set("to", to);
+      navigate(`/outcome/add?${params.toString()}`);
+    } finally {
+      setPayingSalary(false);
+    }
+  };
 
   const handleAdd = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError("");
     try {
+      if (!form.workDate || !form.startTime || !form.endTime) {
+        setError("Please enter date, start time, and end time.");
+        return;
+      }
       if (editingId) {
         await api.put(`/outcome/timesheets/${editingId}`, {
           work_date: form.workDate,
@@ -80,7 +120,12 @@ export default function StaffRolePage() {
       setEditingId(null);
       await loadAll();
     } catch (err) {
-      setError(err.message || "Unable to save shift");
+      const msg = err.message;
+      if (msg === "invalid_time_range") setError("End time must be after start time.");
+      else if (msg === "timesheet_not_found") setError("Shift not found.");
+      else if (msg === "staff_not_found") setError("Staff member not found.");
+      else if (msg === "invalid_data") setError("Enter valid shift details.");
+      else setError(err.message || "Unable to save shift");
     } finally {
       setSaving(false);
     }
@@ -103,7 +148,9 @@ export default function StaffRolePage() {
       await api.delete(`/outcome/timesheets/${tsId}`);
       await loadAll();
     } catch (err) {
-      setError(err.message || "Unable to delete shift");
+      const msg = err.message;
+      if (msg === "timesheet_not_found") setError("Shift not found.");
+      else setError(err.message || "Unable to delete shift");
     }
   };
 
@@ -164,6 +211,33 @@ export default function StaffRolePage() {
         </div>
 
         <div className="quick-form">
+          <div className="panel" style={{ marginBottom: "16px" }}>
+            <div className="panel-header">
+              <div>
+                <div className="panel-title">Salary Summary</div>
+                <div className="panel-meta">{from} → {to}</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gap: "8px", padding: "12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Total Hours</span>
+                <span className="mono">{totalHours.toFixed(2)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Base Rate</span>
+                <span className="mono">{baseRate.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "600" }}>
+                <span>Calculated Salary</span>
+                <span className="mono">{totalWages.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                <button type="button" className="btn btn-primary" onClick={handleRecordSalary} disabled={payingSalary}>
+                  {payingSalary ? "Recording..." : "Record Salary"}
+                </button>
+              </div>
+            </div>
+          </div>
           <div className="panel-title" style={{ marginBottom: '16px' }}>{editingId ? 'Edit Shift' : 'Add Shift'}</div>
           <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div>

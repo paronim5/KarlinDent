@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
 
@@ -17,6 +17,7 @@ const emptyForm = {
 export default function StaffPage() {
   const { t } = useTranslation();
   const api = useApi();
+  const navigate = useNavigate();
 
   const [staff, setStaff] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -30,6 +31,14 @@ export default function StaffPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [editingMember, setEditingMember] = useState(null);
+  const [medicines, setMedicines] = useState([]);
+  const [medicineName, setMedicineName] = useState("");
+  const [medicineSaving, setMedicineSaving] = useState(false);
+  const [medicineError, setMedicineError] = useState("");
+  const [payModal, setPayModal] = useState(null);
+  const [paying, setPaying] = useState(false);
+  const [wageEstimates, setWageEstimates] = useState({});
 
   const loadRoles = async () => {
     try {
@@ -59,7 +68,36 @@ export default function StaffPage() {
   useEffect(() => {
     loadRoles();
     loadStaff();
+    loadMedicines();
   }, []);
+
+  useEffect(() => {
+    const compute = async () => {
+      if (!staff || staff.length === 0) return;
+      const today = new Date();
+      const from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+      const to = today.toISOString().slice(0, 10);
+      const updates = {};
+      const tasks = staff
+        .filter((m) => m.role !== "doctor")
+        .map(async (m) => {
+          try {
+            const ts = await api.get(`/outcome/timesheets?staff_id=${m.id}&from=${from}&to=${to}`);
+            const hours = ts.reduce((sum, item) => sum + (Number(item.hours) || 0), 0);
+            const base = Number(m.base_salary) || 0;
+            const total = Number((hours * base).toFixed(2));
+            if (total > 0) updates[m.id] = total;
+          } catch {
+            /* ignore */
+          }
+        });
+      await Promise.all(tasks);
+      if (Object.keys(updates).length > 0) {
+        setWageEstimates((prev) => ({ ...prev, ...updates }));
+      }
+    };
+    compute();
+  }, [staff]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -67,7 +105,7 @@ export default function StaffPage() {
     setError("");
 
     try {
-      await api.post("/staff", {
+      const payload = {
         first_name: form.firstName,
         last_name: form.lastName,
         phone: form.phone || undefined,
@@ -79,15 +117,45 @@ export default function StaffPage() {
           form.role === "doctor" && form.commissionRate
             ? Number(form.commissionRate) / 100
             : 0
-      });
+      };
+      if (editingMember) {
+        await api.put(`/staff/${editingMember.id}`, payload);
+      } else {
+        await api.post("/staff", payload);
+      }
       setForm(emptyForm);
       setShowForm(false);
+      setEditingMember(null);
       await loadStaff();
     } catch (err) {
-      setError(err.message || "Unable to add staff member");
+      setError(err.message || "Unable to save staff member");
     } finally {
       setSaving(false);
     }
+  };
+
+  const openAddForm = () => {
+    setForm(emptyForm);
+    setEditingMember(null);
+    setShowForm(true);
+  };
+
+  const openEditForm = (member) => {
+    setForm({
+      firstName: member.first_name || "",
+      lastName: member.last_name || "",
+      phone: member.phone || "",
+      email: member.email || "",
+      bio: member.bio || "",
+      role: member.role || "doctor",
+      baseSalary: member.base_salary ? String(member.base_salary) : "",
+      commissionRate:
+        member.role === "doctor" && typeof member.commission_rate === "number"
+          ? String((member.commission_rate * 100).toFixed(1))
+          : ""
+    });
+    setEditingMember(member);
+    setShowForm(true);
   };
 
   const filteredStaff = useMemo(() => staff, [staff]);
@@ -120,7 +188,41 @@ export default function StaffPage() {
     }
   };
 
+  const openPayModal = async (member) => {
+      if (member.role !== "doctor") {
+          const params = new URLSearchParams();
+          params.set("tab", "salary");
+          params.set("staff_id", String(member.id));
+          const today = new Date();
+          const from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+          const to = today.toISOString().slice(0, 10);
+          params.set("from", from);
+          params.set("to", to);
+          navigate(`/outcome/add?${params.toString()}`);
+          return;
+      }
+      try {
+          const estimate = await api.get(`/staff/${member.id}/salary-estimate`);
+          setPayModal({ member, estimate });
+      } catch (err) {
+          setError("Failed to load salary estimate");
+      }
+  };
 
+  const handlePaySalary = async () => {
+      if (!payModal) return;
+      setPaying(true);
+      setError("");
+      try {
+          await api.post("/staff/salaries", { staff_id: payModal.member.id });
+          setPayModal(null);
+          await loadStaff();
+      } catch (err) {
+          setError(err.message || "Payment failed");
+      } finally {
+          setPaying(false);
+      }
+  };
 
   const handleRemove = async (member) => {
     const confirmed = window.confirm(
@@ -156,6 +258,49 @@ export default function StaffPage() {
     }
   };
 
+  const loadMedicines = async () => {
+    try {
+      const items = await api.get("/staff/medicines");
+      setMedicines(items);
+    } catch (err) {
+      setMedicines([]);
+      setMedicineError(err.message || "Unable to load medicines");
+    }
+  };
+
+  const handleAddMedicine = async (event) => {
+    event.preventDefault();
+    const name = medicineName.trim();
+    if (!name) {
+      setMedicineError(t("staff.medicines_placeholder"));
+      return;
+    }
+    setMedicineSaving(true);
+    setMedicineError("");
+    try {
+      await api.post("/staff/medicines", { name });
+      setMedicineName("");
+      await loadMedicines();
+    } catch (err) {
+      setMedicineError(err.message || "Unable to add medicine");
+    } finally {
+      setMedicineSaving(false);
+    }
+  };
+
+  const handleDeleteMedicine = async (medicineId) => {
+    setMedicineSaving(true);
+    setMedicineError("");
+    try {
+      await api.delete(`/staff/medicines/${medicineId}`);
+      await loadMedicines();
+    } catch (err) {
+      setMedicineError(err.message || "Unable to remove medicine");
+    } finally {
+      setMedicineSaving(false);
+    }
+  };
+
   return (
     <>
       {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
@@ -168,7 +313,7 @@ export default function StaffPage() {
           </div>
           <div className="topbar-actions">
             <input className="form-input" placeholder={t("common.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
-            <button className="btn btn-primary" onClick={() => setShowForm(true)}>+ {t("staff.add_staff")}</button>
+            <button className="btn btn-primary" onClick={openAddForm}>+ {t("staff.add_staff")}</button>
           </div>
         </div>
         <div className="table-wrapper">
@@ -198,17 +343,32 @@ export default function StaffPage() {
                   </td>
                   <td>
                     <span className={`pill ${member.role === 'doctor' ? 'pill-blue' : 'pill-orange'}`}>
-                      {t(`staff.roles.${member.role}`)}
+                      {(() => {
+                        const label = t(`staff.roles.${member.role}`);
+                        if (label && !label.startsWith("staff.roles.")) return label;
+                        const role = String(member.role || "");
+                        return role ? role.charAt(0).toUpperCase() + role.slice(1) : "Staff";
+                      })()}
                     </span>
                   </td>
                   <td className="mono">
-                    {member.role === 'doctor' ? `${(member.commission_rate * 100).toFixed(1)}%` : member.base_salary.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    {member.role === 'doctor' ? `${((member.commission_rate || 0) * 100).toFixed(1)}%` : (member.base_salary || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                   </td>
                   <td className="mono" style={{ color: "var(--green)" }}>
-                    {member.commission_income.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    {(() => {
+                      const isDoctor = member.role === 'doctor';
+                      const val = !isDoctor && wageEstimates[member.id] != null && wageEstimates[member.id] > 0
+                        ? wageEstimates[member.id]
+                        : (member.commission_income || 0);
+                      return val.toLocaleString(undefined, { style: "currency", currency: "CZK" });
+                    })()}
                   </td>
                   <td>
-                    <button className="pay-btn" onClick={() => member.role === 'doctor' ? navigate(`/staff/doctor/${member.id}`) : navigate(`/staff/role/${member.id}`)}>{t("common.view")}</button>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button className="pay-btn" onClick={() => openPayModal(member)}>Pay</button>
+                      <button className="pay-btn" onClick={() => member.role === 'doctor' ? navigate(`/staff/doctor/${member.id}`) : navigate(`/staff/role/${member.id}`)}>{t("common.view")}</button>
+                      <button className="pay-btn" onClick={() => openEditForm(member)}>{t("common.edit")}</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -217,10 +377,46 @@ export default function StaffPage() {
         </div>
       </div>
 
+      {payModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+                Pay Salary: {payModal.member.first_name} {payModal.member.last_name}
+            </div>
+            <div className="modal-body">
+                <div style={{ display: 'grid', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Base Salary:</span>
+                        <span className="mono">{(payModal.estimate.base_salary || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Commission:</span>
+                        <span className="mono">{(payModal.estimate.commission_part || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Adjustments:</span>
+                        <span className="mono">{(payModal.estimate.adjustments || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                    </div>
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                        <span>Total:</span>
+                        <span className="mono" style={{ color: 'var(--green)' }}>{(payModal.estimate.estimated_total || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                    </div>
+                </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setPayModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handlePaySalary} disabled={paying}>
+                {paying ? "Processing..." : "Confirm Payment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <div className="modal-backdrop">
           <div className="quick-form" style={{ width: '100%', maxWidth: '500px' }}>
-            <div className="panel-title" style={{ marginBottom: '16px' }}>{t("staff.add_staff")}</div>
+            <div className="panel-title" style={{ marginBottom: '16px' }}>{editingMember ? "Edit Staff" : t("staff.add_staff")}</div>
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div className="form-grid">
                 <div>
@@ -253,13 +449,48 @@ export default function StaffPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                <button type="button" className="btn btn-ghost" onClick={() => setShowForm(false)}>{t("common.cancel")}</button>
+                <button type="button" className="btn btn-ghost" onClick={() => { setShowForm(false); setEditingMember(null); setForm(emptyForm); }}>{t("common.cancel")}</button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t("common.loading") : t("common.save")}</button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      <div className="panel" style={{ marginTop: '20px' }}>
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">{t("staff.medicines_title")}</div>
+            <div className="panel-meta">{medicines.length} items</div>
+          </div>
+        </div>
+        {medicineError && <div className="form-error" style={{ marginBottom: '12px' }}>{medicineError}</div>}
+        <form onSubmit={handleAddMedicine} style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+          <input
+            className="form-input"
+            value={medicineName}
+            onChange={(e) => setMedicineName(e.target.value)}
+            placeholder={t("staff.medicines_placeholder")}
+          />
+          <button type="submit" className="btn btn-primary" disabled={medicineSaving}>
+            {medicineSaving ? t("common.loading") : t("staff.medicines_add")}
+          </button>
+        </form>
+        {medicines.length === 0 ? (
+          <div className="form-label">{t("staff.medicines_placeholder")}</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "8px" }}>
+            {medicines.map((m) => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", border: "1px solid var(--border)", borderRadius: "8px" }}>
+                <div className="mono">{m.name}</div>
+                <button type="button" className="btn btn-ghost" onClick={() => handleDeleteMedicine(m.id)} disabled={medicineSaving}>
+                  {t("common.delete")}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </>
   );
 }

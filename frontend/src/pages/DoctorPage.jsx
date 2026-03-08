@@ -6,43 +6,17 @@ import { useApi } from "../api/client.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
 
-function DateRangePicker({ from, to, onChange }) {
-  return (
-    <div className="date-range">
-      <label>
-        From
-        <input
-          type="date"
-          value={from}
-          onChange={(event) => onChange({ from: event.target.value, to })}
-        />
-      </label>
-      <label>
-        To
-        <input
-          type="date"
-          value={to}
-          onChange={(event) => onChange({ from, to: event.target.value })}
-        />
-      </label>
-    </div>
-  );
-}
-
 export default function DoctorPage() {
   const { id } = useParams();
   const api = useApi();
-
-  const today = new Date().toISOString().slice(0, 10);
-  const to30 = today;
-  const from30 = new Date(Date.now() - 29 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const storedPeriod = localStorage.getItem("globalPeriod") || "month";
 
   const [error, setError] = useState("");
   const [overview, setOverview] = useState(null);
   const [daily, setDaily] = useState([]);
   const [monthly, setMonthly] = useState([]);
-  const [from, setFrom] = useState(from30);
-  const [to, setTo] = useState(to30);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [loading, setLoading] = useState(false);
 
   const chartOptions = {
@@ -64,6 +38,24 @@ export default function DoctorPage() {
         labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
       }
     }
+  };
+
+  const computeRange = (selectedPeriod) => {
+    const now = new Date();
+    const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    let fromDate = new Date(toDate);
+    if (selectedPeriod === "day") {
+      fromDate = new Date(toDate);
+    } else if (selectedPeriod === "week") {
+      fromDate = new Date(toDate);
+      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+    } else if (selectedPeriod === "month") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+    } else if (selectedPeriod === "year") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+    }
+    const format = (d) => d.toISOString().slice(0, 10);
+    return { from: format(fromDate), to: format(toDate) };
   };
 
   const loadAll = async (rangeFrom = from, rangeTo = to) => {
@@ -90,16 +82,23 @@ export default function DoctorPage() {
   };
 
   useEffect(() => {
-    loadAll();
+    const initial = computeRange(storedPeriod);
+    setFrom(initial.from);
+    setTo(initial.to);
+    loadAll(initial.from, initial.to);
   }, [id]);
 
-  const handleRangeChange = ({ from: newFrom, to: newTo }) => {
-    setFrom(newFrom);
-    setTo(newTo);
-    if (newFrom && newTo) {
-      loadAll(newFrom, newTo);
-    }
-  };
+  useEffect(() => {
+    const handler = (event) => {
+      if (event?.detail?.from && event?.detail?.to) {
+        setFrom(event.detail.from);
+        setTo(event.detail.to);
+        loadAll(event.detail.from, event.detail.to);
+      }
+    };
+    window.addEventListener("periodChanged", handler);
+    return () => window.removeEventListener("periodChanged", handler);
+  }, [id]);
 
   const dailyChartData = useMemo(() => {
     if (!daily || daily.length === 0) return null;

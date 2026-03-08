@@ -83,13 +83,18 @@ FOR EACH ROW EXECUTE FUNCTION update_last_paid_at();
 -- PATIENTS
 -- ============================================================
 CREATE TABLE patients (
-    id          SERIAL PRIMARY KEY,
-    first_name  VARCHAR(100) NOT NULL,
-    last_name   VARCHAR(100) NOT NULL,
-    phone       VARCHAR(30),
-    email       VARCHAR(150),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id              SERIAL PRIMARY KEY,
+    first_name      VARCHAR(100), -- Now nullable
+    last_name       VARCHAR(100) NOT NULL,
+    phone           VARCHAR(30),
+    street_address  VARCHAR(255),
+    city            VARCHAR(50),
+    zip_code        VARCHAR(10),
+    email           VARCHAR(150),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX idx_patients_last_first_name ON patients (last_name, first_name);
 
 -- ============================================================
 -- INCOME RECORDS  (/Income page)
@@ -136,6 +141,15 @@ INSERT INTO outcome_categories (name) VALUES
     ('utilities'),
     ('equipment'),
     ('other');
+
+-- ============================================================
+-- MEDICINE PRESETS
+-- ============================================================
+CREATE TABLE medicine_presets (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(150) NOT NULL UNIQUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- ============================================================
 -- OUTCOME RECORDS  (/Outcome page — non-salary expenses)

@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 
 from .config import config
 from .db import get_connection, release_connection
+from .patients import parse_patient_input
 
 
 income_bp = Blueprint("income", __name__)
@@ -25,6 +26,35 @@ def validate_amount(value: Any) -> float:
     return round(amount, 2)
 
 
+def validate_lab_cost(value: Any, required: bool) -> float:
+    if value is None or value == "":
+        if required:
+            raise ValueError("lab_cost_required")
+        return 0.0
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("invalid_lab_cost")
+    if required and amount <= 0:
+        raise ValueError("lab_cost_required")
+    if amount < 0:
+        raise ValueError("invalid_lab_cost")
+    return round(amount, 2)
+
+
+def column_exists(conn, table: str, column: str) -> bool:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = %s AND column_name = %s
+        """,
+        (table, column),
+    )
+    return cur.fetchone() is not None
+
+
 def validate_payment_method(value: Any) -> str:
     if value not in ("cash", "card"):
         raise ValueError("invalid_payment_method")
@@ -41,22 +71,44 @@ def ensure_patient(conn, patient_id: Optional[int], patient_data: Dict[str, Any]
         return patient_id
 
     last_name = patient_data.get("last_name")
+    first_name = patient_data.get("first_name")
     phone = patient_data.get("phone")
     email = patient_data.get("email")
+    street_address = patient_data.get("street_address")
+    city = patient_data.get("city")
+    zip_code = patient_data.get("zip_code")
 
+    if not last_name and not first_name:
+        raise ValueError("invalid_patient")
+    if last_name and first_name is None:
+        try:
+            ln, fn = parse_patient_input(last_name)
+            last_name = ln
+            first_name = fn
+        except ValueError:
+            pass
     if not last_name:
         raise ValueError("invalid_patient")
 
-    first_name = last_name
-
-    cur.execute(
-        """
-        INSERT INTO patients (first_name, last_name, phone, email)
-        VALUES (%s, %s, %s, %s)
-        RETURNING id
-        """,
-        (first_name, last_name, phone, email),
-    )
+    has_address_fields = column_exists(conn, "patients", "street_address")
+    if has_address_fields:
+        cur.execute(
+            """
+            INSERT INTO patients (first_name, last_name, phone, email, street_address, city, zip_code)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (first_name, last_name, phone, email, street_address, city, zip_code),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO patients (first_name, last_name, phone, email)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+            """,
+            (first_name, last_name, phone, email),
+        )
     row = cur.fetchone()
     return int(row[0])
 
@@ -127,71 +179,208 @@ def list_income_records():
             conditions.append("ir.payment_method = %s")
             params.append(payment_method_param)
         where_sql = " AND ".join(conditions)
-        cur.execute(
-            f"""
-            SELECT ir.id,
-                   ir.service_date,
-                   ir.amount,
-                   ir.lab_cost,
-                   ir.payment_method,
-                   ir.note,
-                   p.first_name,
-                   p.last_name,
-                   s.first_name,
-                   s.last_name
-            FROM income_records ir
-            JOIN patients p ON p.id = ir.patient_id
-            JOIN staff s ON s.id = ir.doctor_id
-            WHERE {where_sql}
-            ORDER BY ir.service_date DESC, ir.id DESC
-            """,
-            params,
-        )
+        includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        if includes_lab_cost:
+            cur.execute(
+                f"""
+                SELECT ir.id,
+                       ir.service_date,
+                       ir.amount,
+                       ir.lab_cost,
+                       ir.payment_method,
+                       ir.note,
+                       p.first_name,
+                       p.last_name,
+                       s.first_name,
+                       s.last_name,
+                       ir.salary_payment_id
+                FROM income_records ir
+                JOIN patients p ON p.id = ir.patient_id
+                JOIN staff s ON s.id = ir.doctor_id
+                WHERE {where_sql}
+                ORDER BY ir.service_date DESC, ir.id DESC
+                """,
+                params,
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT ir.id,
+                       ir.service_date,
+                       ir.amount,
+                       ir.payment_method,
+                       ir.note,
+                       p.first_name,
+                       p.last_name,
+                       s.first_name,
+                       s.last_name,
+                       ir.salary_payment_id
+                FROM income_records ir
+                JOIN patients p ON p.id = ir.patient_id
+                JOIN staff s ON s.id = ir.doctor_id
+                WHERE {where_sql}
+                ORDER BY ir.service_date DESC, ir.id DESC
+                """,
+                params,
+            )
         rows = cur.fetchall()
     finally:
         release_connection(conn)
 
     items = []
     for row in rows:
+        if includes_lab_cost:
+            lab_cost = float(row[3])
+            payment_method = row[4]
+            note = row[5]
+            patient_first_name = row[6]
+            patient_last_name = row[7]
+            doctor_first_name = row[8]
+            doctor_last_name = row[9]
+            salary_payment_id = row[10]
+        else:
+            lab_cost = 0.0
+            payment_method = row[3]
+            note = row[4]
+            patient_first_name = row[5]
+            patient_last_name = row[6]
+            doctor_first_name = row[7]
+            doctor_last_name = row[8]
+            salary_payment_id = row[9]
         items.append(
             {
                 "id": row[0],
                 "service_date": row[1].isoformat(),
                 "amount": float(row[2]),
-                "lab_cost": float(row[3]),
-                "payment_method": row[4],
-                "note": row[5],
+                "lab_cost": lab_cost,
+                "payment_method": payment_method,
+                "note": note,
                 "patient": {
-                    "first_name": row[6],
-                    "last_name": row[7],
+                    "first_name": patient_first_name,
+                    "last_name": patient_last_name,
                 },
                 "doctor": {
-                    "first_name": row[8],
-                    "last_name": row[9],
+                    "first_name": doctor_first_name,
+                    "last_name": doctor_last_name,
                 },
+                "salary_payment_id": salary_payment_id,
+                "is_paid": salary_payment_id is not None
             }
         )
 
     return jsonify(items)
 
 
-@income_bp.route("/records/<int:record_id>", methods=["DELETE"])
-def delete_income_record(record_id: int):
+@income_bp.route("/records/<int:record_id>", methods=["GET"])
+def get_income_record(record_id: int):
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute(
-            """
-            DELETE FROM salary_payments
-            WHERE note = %s
-            """,
-            (f"Commission from income #{record_id}",),
-        )
+        
+        includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        
+        columns = [
+            "ir.id", "ir.amount", "ir.payment_method", "ir.service_date", "ir.note",
+            "ir.doctor_id", "ir.patient_id",
+            "p.first_name", "p.last_name", "p.phone", "p.street_address", "p.city", "p.zip_code",
+            "ir.salary_payment_id"
+        ]
+        if includes_lab_cost:
+            columns.append("ir.lab_cost")
+        
+        query = f"""
+            SELECT {", ".join(columns)}
+            FROM income_records ir
+            JOIN patients p ON p.id = ir.patient_id
+            WHERE ir.id = %s
+        """
+        
+        cur.execute(query, (record_id,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+            
+        item = {
+            "id": row[0],
+            "amount": float(row[1]),
+            "payment_method": row[2],
+            "service_date": row[3].isoformat(),
+            "note": row[4],
+            "doctor_id": row[5],
+            "patient_id": row[6],
+            "patient": {
+                "id": row[6],
+                "first_name": row[7],
+                "last_name": row[8],
+                "phone": row[9],
+                "street_address": row[10],
+                "city": row[11],
+                "zip_code": row[12]
+            },
+            "salary_payment_id": row[13],
+            "is_paid": row[13] is not None
+        }
+        
+        if includes_lab_cost:
+            item["lab_cost"] = float(row[14])
+        else:
+            item["lab_cost"] = 0.0
+            
+        return jsonify(item)
+    finally:
+        release_connection(conn)
+
+
+@income_bp.route("/records/<int:record_id>", methods=["DELETE"])
+def delete_income_record(record_id: int):
+    mode = request.args.get("mode", "delete_only") # delete_only, adjust_next, ignore
+
+    conn = get_connection()
+    try:
         cur = conn.cursor()
-        cur.execute("DELETE FROM income_records WHERE id = %s", (record_id,))
-        if cur.rowcount == 0:
+        
+        includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        if includes_lab_cost:
+             cur.execute("SELECT amount, doctor_id, salary_payment_id, lab_cost FROM income_records WHERE id = %s", (record_id,))
+        else:
+             cur.execute("SELECT amount, doctor_id, salary_payment_id, 0 FROM income_records WHERE id = %s", (record_id,))
+             
+        row = cur.fetchone()
+        if not row:
             conn.rollback()
             return jsonify({"error": "not_found"}), 404
+            
+        amount = float(row[0])
+        doctor_id = int(row[1])
+        salary_payment_id = row[2]
+        lab_cost = float(row[3] or 0)
+        
+        if salary_payment_id is not None:
+            if mode == "delete_only":
+                conn.rollback()
+                return jsonify({"error": "linked_to_salary", "message": "This record is linked to a salary payment."}), 409
+            
+            elif mode == "adjust_next":
+                 # Deduct the commission that was paid
+                 try:
+                    cur.execute("SELECT commission_rate FROM staff WHERE id = %s", (doctor_id,))
+                    rate = float(cur.fetchone()[0] or 0)
+                 except:
+                    rate = 0.0
+                 
+                 commission_paid = (amount * rate) - lab_cost
+                 adjustment = -commission_paid
+                 
+                 cur.execute(
+                     """
+                     INSERT INTO salary_adjustments (staff_id, amount, reason)
+                     VALUES (%s, %s, %s)
+                     """,
+                     (doctor_id, adjustment, f"Reversal of paid income #{record_id}")
+                 )
+            # elif mode == "ignore": just delete
+            
+        cur.execute("DELETE FROM income_records WHERE id = %s", (record_id,))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -202,17 +391,12 @@ def delete_income_record(record_id: int):
     return jsonify({"status": "ok"}), 200
 
 
-@income_bp.route("/records", methods=["POST"])
-def create_income_record():
+@income_bp.route("/records/<int:record_id>", methods=["PUT"])
+def update_income_record(record_id: int):
     data = request.get_json(silent=True) or {}
-
-    doctor_id = data.get("doctor_id")
-    if not doctor_id:
-        return jsonify({"error": "invalid_doctor"}), 400
-
+    
     try:
         amount = validate_amount(data.get("amount"))
-        lab_cost = float(data.get("lab_cost", 0))
         payment_method = validate_payment_method(data.get("payment_method"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -221,7 +405,144 @@ def create_income_record():
     service_date = (
         parse_date(service_date_param) if service_date_param else date.today()
     )
-    note = data.get("note")
+    note = (data.get("note") or "").strip()
+    
+    salary_modification_mode = data.get("salary_modification_mode", "ignore") # ignore, adjust_next
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        
+        includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        
+        if includes_lab_cost:
+             cur.execute("SELECT amount, doctor_id, salary_payment_id, lab_cost FROM income_records WHERE id = %s", (record_id,))
+        else:
+             cur.execute("SELECT amount, doctor_id, salary_payment_id, 0 FROM income_records WHERE id = %s", (record_id,))
+
+        old_row = cur.fetchone()
+        if not old_row:
+             conn.rollback()
+             return jsonify({"error": "not_found"}), 404
+             
+        old_amount = float(old_row[0])
+        doctor_id = int(old_row[1])
+        salary_payment_id = old_row[2]
+        old_lab_cost = float(old_row[3] or 0)
+        
+        lab_cost = old_lab_cost
+        if includes_lab_cost:
+             lab_required = bool(data.get("lab_required"))
+             try:
+                 lab_cost = validate_lab_cost(data.get("lab_cost"), lab_required)
+             except ValueError as exc:
+                 return jsonify({"error": str(exc)}), 400
+
+        # Update record
+        if includes_lab_cost:
+            cur.execute(
+                """
+                UPDATE income_records
+                SET amount = %s,
+                    lab_cost = %s,
+                    payment_method = %s,
+                    service_date = %s,
+                    note = %s
+                WHERE id = %s
+                """,
+                (amount, lab_cost, payment_method, service_date, note, record_id)
+            )
+        else:
+             cur.execute(
+                """
+                UPDATE income_records
+                SET amount = %s,
+                    payment_method = %s,
+                    service_date = %s,
+                    note = %s
+                WHERE id = %s
+                """,
+                (amount, payment_method, service_date, note, record_id)
+            )
+            
+        # Post-Salary Logic
+        if salary_payment_id is not None:
+             if salary_modification_mode == "adjust_next":
+                 try:
+                    cur.execute("SELECT commission_rate FROM staff WHERE id = %s", (doctor_id,))
+                    rate = float(cur.fetchone()[0] or 0)
+                 except:
+                    rate = 0.0
+                 
+                 old_commission = (old_amount * rate) - old_lab_cost
+                 new_commission = (amount * rate) - lab_cost
+                 diff = new_commission - old_commission
+                 
+                 if abs(diff) > 0.001:
+                     cur.execute(
+                         """
+                         INSERT INTO salary_adjustments (staff_id, amount, reason)
+                         VALUES (%s, %s, %s)
+                         """,
+                         (doctor_id, diff, f"Correction for paid income #{record_id}")
+                     )
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_connection(conn)
+
+    return jsonify({"status": "ok"})
+
+
+@income_bp.route("/records", methods=["POST"])
+def create_income_record():
+    data = request.get_json(silent=True) or {}
+
+    doctor_id = data.get("doctor_id")
+    if not doctor_id:
+        return jsonify({"error": "invalid_doctor"}), 400
+
+    receipt_issued = bool(data.get("receipt_issued"))
+    receipt_reason = (data.get("receipt_reason") or "").strip()
+    receipt_note = (data.get("receipt_note") or "").strip()
+    receipt_medicine = (data.get("receipt_medicine") or "").strip()
+    lab_required = bool(data.get("lab_required"))
+    lab_note = (data.get("lab_note") or "").strip()
+
+    try:
+        amount = validate_amount(data.get("amount"))
+        lab_cost = validate_lab_cost(data.get("lab_cost"), lab_required)
+        payment_method = validate_payment_method(data.get("payment_method"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    service_date_param = data.get("service_date")
+    service_date = (
+        parse_date(service_date_param) if service_date_param else date.today()
+    )
+    note = (data.get("note") or "").strip()
+    if receipt_issued and not receipt_note:
+        return jsonify({"error": "receipt_note_required"}), 400
+    if lab_required and not lab_note:
+        return jsonify({"error": "lab_note_required"}), 400
+    note_parts = []
+    if note:
+        note_parts.append(note)
+    if receipt_issued:
+        receipt_parts = ["receipt"]
+        if receipt_reason:
+            receipt_parts.append(f"reason={receipt_reason}")
+        if receipt_medicine:
+            receipt_parts.append(f"medicine={receipt_medicine}")
+        if receipt_note:
+            receipt_parts.append(f"note={receipt_note}")
+        note_parts.append("; ".join(receipt_parts))
+    if lab_required:
+        note_parts.append(f"lab_note={lab_note}")
+    note = " | ".join(note_parts) if note_parts else None
 
     patient_id = data.get("patient_id")
     patient_data = data.get("patient", {})
@@ -262,42 +583,50 @@ def create_income_record():
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        cur.execute(
-            """
-            INSERT INTO income_records
-                (patient_id, doctor_id, amount, lab_cost, payment_method, service_date, note)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (
-                resolved_patient_id,
-                doctor_id,
-                amount,
-                lab_cost,
-                payment_method,
-                service_date,
-                note,
-            ),
-        )
+        includes_lab_cost = column_exists(conn, "income_records", "lab_cost")
+        if includes_lab_cost:
+            cur.execute(
+                """
+                INSERT INTO income_records
+                    (patient_id, doctor_id, amount, lab_cost, payment_method, service_date, note)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    resolved_patient_id,
+                    doctor_id,
+                    amount,
+                    lab_cost,
+                    payment_method,
+                    service_date,
+                    note,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO income_records
+                    (patient_id, doctor_id, amount, payment_method, service_date, note)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    resolved_patient_id,
+                    doctor_id,
+                    amount,
+                    payment_method,
+                    service_date,
+                    note,
+                ),
+            )
         row = cur.fetchone()
 
         income_id = int(row[0])
-        commission_rate = doctor_commission_rate
-        if commission_rate > 0:
-            commission_amount = round(amount * commission_rate - lab_cost, 2)
-            cur.execute(
-                """
-                INSERT INTO salary_payments
-                    (staff_id, amount, payment_date, note)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (
-                    doctor_id,
-                    commission_amount,
-                    service_date,
-                    f"Commission from income #{income_id}",
-                ),
-            )
+        
+        # NOTE: Salary payment is now deferred. 
+        # We rely on staff.total_revenue (updated via trigger) and 
+        # later we will process unpaid income_records in staff.pay_salary.
+
         conn.commit()
     except Exception:
         conn.rollback()

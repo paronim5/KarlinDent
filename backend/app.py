@@ -7,6 +7,7 @@ from .clinic import clinic_bp
 from .income import income_bp
 from .outcome import outcome_bp
 from .staff import staff_bp
+from .patients import patients_bp
 
 
 def create_app(testing: bool = False) -> Flask:
@@ -24,6 +25,7 @@ def create_app(testing: bool = False) -> Flask:
     app.register_blueprint(income_bp, url_prefix="/api/income")
     app.register_blueprint(outcome_bp, url_prefix="/api/outcome")
     app.register_blueprint(staff_bp, url_prefix="/api/staff")
+    app.register_blueprint(patients_bp, url_prefix="/api/patients")
 
     @app.route("/api/health")
     def health():

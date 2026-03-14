@@ -970,3 +970,37 @@ select.form-input { cursor: pointer; }
   background: rgba(245,158,11,0.25);
   border-color: var(--accent2);
 }
+
+.amount-discrepancy-modal .modal {
+  max-width: 560px;
+}
+.amount-discrepancy-content {
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+}
+.amount-discrepancy-stats {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.amount-discrepancy-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  font-size: 14px;
+}
+.amount-discrepancy-row + .amount-discrepancy-row {
+  border-top: 1px solid var(--border);
+}
+.amount-discrepancy-row strong {
+  font-family: var(--font-mono);
+  color: var(--accent2);
+}
+.amount-discrepancy-note {
+  font-size: 13px;
+  color: var(--subtext);
+}

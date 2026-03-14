@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import io
+import json
 import math
 import logging
 import os
@@ -91,6 +92,79 @@ def ensure_staff_documents_table(conn) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_documents_type ON staff_documents(document_type)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_documents_period ON staff_documents(period_from, period_to)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_documents_signed_at ON staff_documents(signed_at)")
+
+
+def ensure_salary_amount_audit_table(conn) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS salary_amount_audit (
+            id                  SERIAL PRIMARY KEY,
+            staff_id            INT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+            salary_payment_id   INT REFERENCES salary_payments(id) ON DELETE SET NULL,
+            previous_amount     NUMERIC(12, 2) NOT NULL,
+            new_amount          NUMERIC(12, 2) NOT NULL,
+            delta_amount        NUMERIC(12, 2) NOT NULL,
+            change_source       VARCHAR(40) NOT NULL,
+            change_reason       TEXT,
+            changed_by_staff_id INT,
+            metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_salary_amount_audit_staff ON salary_amount_audit(staff_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_salary_amount_audit_payment ON salary_amount_audit(salary_payment_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_salary_amount_audit_created ON salary_amount_audit(created_at DESC)")
+
+
+def record_salary_amount_audit(
+    conn,
+    *,
+    staff_id: int,
+    salary_payment_id: Optional[int],
+    previous_amount: float,
+    new_amount: float,
+    change_source: str,
+    change_reason: str,
+    changed_by_staff_id: Optional[int],
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    ensure_salary_amount_audit_table(conn)
+    cur = conn.cursor()
+    previous = round(float(previous_amount or 0), 2)
+    current = round(float(new_amount or 0), 2)
+    delta = round(current - previous, 2)
+    metadata_payload = json.dumps(metadata or {})
+    cur.execute(
+        """
+        INSERT INTO salary_amount_audit
+            (
+                staff_id,
+                salary_payment_id,
+                previous_amount,
+                new_amount,
+                delta_amount,
+                change_source,
+                change_reason,
+                changed_by_staff_id,
+                metadata
+            )
+        VALUES
+            (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+        """,
+        (
+            staff_id,
+            salary_payment_id,
+            previous,
+            current,
+            delta,
+            str(change_source or "unknown"),
+            (change_reason or "").strip() or None,
+            changed_by_staff_id,
+            metadata_payload,
+        ),
+    )
 
 
 def parse_working_date(value: str) -> date:
@@ -324,7 +398,8 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
 
             total_income = sum(float(row[2] or 0) for row in patient_rows)
             total_lab_fees = sum(max(float(row[3] or 0), 0.0) for row in patient_rows)
-            total_commission = round(total_income * commission_rate, 2)
+            commission_metrics = compute_doctor_commission_metrics(total_income, total_lab_fees, commission_rate)
+            total_commission = commission_metrics["total_commission"]
 
             cur.execute(
                 """
@@ -348,13 +423,15 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
             }
             for row in patient_rows
         ]
-        adjusted_total_salary = round(base_salary + total_commission - total_lab_fees + adjustments, 2)
+        adjusted_total_salary = round(base_salary + total_commission + adjustments, 2)
         report["summary"] = {
             "base_salary": round(base_salary, 2),
             "commission_rate": round(commission_rate, 4),
             "total_income": round(total_income, 2),
+            "commission_base_income": commission_metrics["commission_base_income"],
             "total_commission": round(total_commission, 2),
             "total_lab_fees": round(total_lab_fees, 2),
+            "negative_balance": commission_metrics["negative_balance"],
             "adjustments": round(adjustments, 2),
             "total_salary": adjusted_total_salary,
             "adjusted_total_salary": adjusted_total_salary,
@@ -400,6 +477,36 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
         ]
 
     return report
+
+
+def apply_report_amount_override(report: Dict[str, Any], amount_override: Optional[float]) -> Dict[str, Any]:
+    if not report or amount_override is None:
+        return report
+    summary = report.get("summary")
+    if not isinstance(summary, dict):
+        return report
+    previous_total = round(float(summary.get("total_salary") or 0), 2)
+    override_total = round(float(amount_override), 2)
+    summary["computed_total_salary"] = previous_total
+    summary["total_salary"] = override_total
+    summary["amount_delta"] = round(override_total - previous_total, 2)
+    summary["amount_override_applied"] = not math.isclose(previous_total, override_total, rel_tol=0.0, abs_tol=0.009)
+    return report
+
+
+def compute_doctor_commission_metrics(total_income: float, total_lab_fees: float, commission_rate: float) -> Dict[str, float]:
+    gross_income = round(float(total_income or 0), 2)
+    lab_fees = round(max(float(total_lab_fees or 0), 0.0), 2)
+    commission_base_income = round(max(gross_income - lab_fees, 0.0), 2)
+    negative_balance = round(max(lab_fees - gross_income, 0.0), 2)
+    total_commission = round(commission_base_income * float(commission_rate or 0), 2)
+    return {
+        "total_income": gross_income,
+        "total_lab_fees": lab_fees,
+        "commission_base_income": commission_base_income,
+        "negative_balance": negative_balance,
+        "total_commission": total_commission,
+    }
 
 
 def save_salary_report(staff_id: int, report: Dict[str, Any], signature_info: Dict[str, Any]) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
@@ -718,11 +825,12 @@ def build_salary_report_pdf(report: Dict[str, Any], signature_info: Optional[Dic
         summary = report.get("summary", {})
         summary_data = [
             [Paragraph("Base Salary", normal_style), Paragraph(format_money(summary.get("base_salary", 0)), value_style)],
+            [Paragraph("Commission Base (After Lab Fees)", normal_style), Paragraph(format_money(summary.get("commission_base_income", 0)), value_style)],
             [
                 Paragraph(f"Commission ({summary.get('commission_rate', 0) * 100:.2f}%)", normal_style),
                 Paragraph(format_money(summary.get("total_commission", 0)), value_style),
             ],
-            [Paragraph("Lab Fees Deduction", normal_style), Paragraph(format_money(-float(summary.get("total_lab_fees", 0) or 0)), value_style)],
+            [Paragraph("Lab Fees", normal_style), Paragraph(format_money(summary.get("total_lab_fees", 0)), value_style)],
             [Paragraph("Adjustments", normal_style), Paragraph(format_money(summary.get("adjustments", 0)), value_style)],
             [Paragraph("Total Salary", label_style), Paragraph(format_money(summary.get("total_salary", 0)), value_style)],
         ]
@@ -1105,7 +1213,8 @@ def get_salary_estimate(staff_id: int):
             patient_rows = cur.fetchall()
             total_income = sum(float(r[2] or 0) for r in patient_rows)
             total_lab_fees = sum(max(float(r[3] or 0), 0.0) for r in patient_rows)
-            commission_part = round(total_income * commission_rate, 2)
+            commission_metrics = compute_doctor_commission_metrics(total_income, total_lab_fees, commission_rate)
+            commission_part = commission_metrics["total_commission"]
             unpaid_patients = [
                 {
                     "name": (" ".join(filter(None, [r[0], r[1]])).strip() or "Unknown patient"),
@@ -1120,6 +1229,7 @@ def get_salary_estimate(staff_id: int):
             total_lab_fees = 0.0
             commission_part = 0.0
             unpaid_patients = []
+            commission_metrics = compute_doctor_commission_metrics(0.0, 0.0, commission_rate)
 
         cur.execute(
             """
@@ -1131,7 +1241,7 @@ def get_salary_estimate(staff_id: int):
         )
         adjustments = float(cur.fetchone()[0] or 0)
 
-        estimated_total = base_salary + commission_part - total_lab_fees + adjustments
+        estimated_total = base_salary + commission_part + adjustments
 
         return jsonify({
             "base_salary": round(base_salary, 2),
@@ -1140,6 +1250,8 @@ def get_salary_estimate(staff_id: int):
             "period": {"from": start_date.isoformat(), "to": end_date.isoformat()},
             "total_income": round(total_income, 2),
             "total_lab_fees": round(total_lab_fees, 2),
+            "commission_base_income": commission_metrics["commission_base_income"],
+            "negative_balance": commission_metrics["negative_balance"],
             "commission_part": round(commission_part, 2),
             "adjustments": round(adjustments, 2),
             "estimated_total": round(estimated_total, 2),
@@ -1168,6 +1280,9 @@ def pay_salary():
     except ValueError:
         return jsonify({"error": "invalid_payment_date"}), 400
     note = data.get("note", "").strip()
+    amount_change_reason = str(data.get("amount_change_reason") or "").strip()
+    auth = get_authenticated_staff()
+    changed_by_staff_id = int(auth["id"]) if auth and auth.get("id") else None
 
     conn = get_connection()
     try:
@@ -1262,11 +1377,13 @@ def pay_salary():
             gross_income_row = cur.fetchone()
             total_income = float(gross_income_row[0] or 0)
             total_lab_fees = max(float(gross_income_row[1] or 0), 0.0)
-            commission_part = round(total_income * commission_rate, 2)
+            commission_metrics = compute_doctor_commission_metrics(total_income, total_lab_fees, commission_rate)
+            commission_part = commission_metrics["total_commission"]
         else:
             total_income = 0.0
             total_lab_fees = 0.0
             commission_part = 0.0
+            commission_metrics = compute_doctor_commission_metrics(0.0, 0.0, commission_rate)
 
         cur.execute(
             """
@@ -1278,10 +1395,11 @@ def pay_salary():
         )
         adjustments = float(cur.fetchone()[0] or 0)
 
+        calculated_amount = round(base_salary + commission_part + adjustments, 2)
         if requested_amount is not None:
             total_amount = validate_salary(requested_amount)
         else:
-            total_amount = round(base_salary + commission_part - total_lab_fees + adjustments, 2)
+            total_amount = calculated_amount
 
         # Record payment
         cur.execute(
@@ -1293,6 +1411,32 @@ def pay_salary():
             (staff_id, total_amount, payment_date, note)
         )
         payment_id = cur.fetchone()[0]
+
+        record_salary_amount_audit(
+            conn,
+            staff_id=int(staff_id),
+            salary_payment_id=int(payment_id),
+            previous_amount=calculated_amount,
+            new_amount=total_amount,
+            change_source="manual_override" if requested_amount is not None else "auto_calculated",
+            change_reason=amount_change_reason or note,
+            changed_by_staff_id=changed_by_staff_id,
+            metadata={
+                "from": from_param,
+                "to": to_param,
+                "role": role_name,
+                "payment_date": payment_date.isoformat(),
+                "has_signature_payload": bool(data.get("signature")),
+            },
+        )
+        if requested_amount is not None and not math.isclose(total_amount, calculated_amount, rel_tol=0.0, abs_tol=0.009):
+            logger.info(
+                "Salary amount overridden for staff %s: calculated=%s final=%s by=%s",
+                staff_id,
+                calculated_amount,
+                total_amount,
+                changed_by_staff_id,
+            )
 
         if role_name == "doctor":
             cur.execute(
@@ -1344,6 +1488,7 @@ def pay_salary():
         if signature_payload:
             report = build_salary_report_data(staff_id, from_param, to_param)
             if report and "error" not in report:
+                report = apply_report_amount_override(report, total_amount)
                 staff_full_name = " ".join(filter(None, [report["staff"]["first_name"], report["staff"]["last_name"]])).strip()
                 try:
                     signature_info = build_signature_payload({**signature_payload, "signer_name": staff_full_name})
@@ -1722,6 +1867,13 @@ def staff_salary_notes(staff_id: int):
 def staff_salary_report(staff_id: int):
     from_param = request.args.get("from")
     to_param = request.args.get("to")
+    amount_override_raw = request.args.get("amount")
+    amount_override = None
+    if amount_override_raw not in (None, ""):
+        try:
+            amount_override = validate_salary(amount_override_raw)
+        except ValueError:
+            return jsonify({"error": "invalid_salary"}), 400
 
     report = build_salary_report_data(staff_id, from_param, to_param)
     if report is None:
@@ -1730,6 +1882,7 @@ def staff_salary_report(staff_id: int):
         return jsonify({"error": "invalid_date_format"}), 400
     if report.get("error") == "invalid_date_range":
         return jsonify({"error": "invalid_date_range"}), 400
+    report = apply_report_amount_override(report, amount_override)
     signature_info = None
     signer_name = request.args.get("signer_name")
     signed_at = request.args.get("signed_at")
@@ -1778,6 +1931,12 @@ def staff_salary_report_pdf(staff_id: int):
     payload = request.get_json(silent=True) or {}
     from_param = payload.get("from")
     to_param = payload.get("to")
+    amount_override = payload.get("amount")
+    if amount_override is not None:
+        try:
+            amount_override = validate_salary(amount_override)
+        except ValueError:
+            return jsonify({"error": "invalid_salary"}), 400
     signature_payload = payload.get("signature") or {}
 
     auth_error = ensure_staff_authorized(staff_id)
@@ -1791,6 +1950,7 @@ def staff_salary_report_pdf(staff_id: int):
         return jsonify({"error": "invalid_date_format"}), 400
     if report.get("error") == "invalid_date_range":
         return jsonify({"error": "invalid_date_range"}), 400
+    report = apply_report_amount_override(report, amount_override)
 
     staff_full_name = " ".join(filter(None, [report["staff"]["first_name"], report["staff"]["last_name"]])).strip()
     if signature_payload.get("signer_name") and signature_payload.get("signer_name") != staff_full_name:

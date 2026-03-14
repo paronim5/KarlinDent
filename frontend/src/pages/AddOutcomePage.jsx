@@ -43,6 +43,7 @@ export default function AddOutcomePage() {
   const [salaryNotesLoading, setSalaryNotesLoading] = useState(false);
   const [salaryNotesError, setSalaryNotesError] = useState("");
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
+  const [amountDiscrepancyModal, setAmountDiscrepancyModal] = useState(null);
   const [signatureSubmitting, setSignatureSubmitting] = useState(false);
   const [signatureError, setSignatureError] = useState("");
   const [signerName, setSignerName] = useState("");
@@ -294,14 +295,35 @@ export default function AddOutcomePage() {
       setError("Select a payment date.");
       return;
     }
+    if (Number.isFinite(suggestedAmount) && suggestedAmount > 0) {
+      const diff = Math.abs(amountValue - suggestedAmount);
+      const diffRatio = diff / suggestedAmount;
+      if (diffRatio >= 0.05) {
+        setAmountDiscrepancyModal({
+          calculated: suggestedAmount,
+          entered: amountValue,
+          delta: amountValue - suggestedAmount,
+          ratio: diffRatio
+        });
+        return;
+      }
+    }
 
+    handleAmountDiscrepancyConfirm();
+  };
+
+  const handleAmountDiscrepancyConfirm = () => {
+    setAmountDiscrepancyModal(null);
     if (!canSign) {
       setSignatureError("You can only sign your own salary documents.");
       setSignatureModalOpen(true);
       return;
     }
-
     openSignatureModal();
+  };
+
+  const handleAmountDiscrepancyCancel = () => {
+    setAmountDiscrepancyModal(null);
   };
 
   const handleRecordSalaryWithSignature = async () => {
@@ -316,12 +338,14 @@ export default function AddOutcomePage() {
       const range = resolveReportRange();
       
       const amountValue = toNumber(salaryForm.amount, NaN);
+      const amountChangeReason = hasManualSalaryAmount ? "manual_ui_adjustment" : "calculated_value";
 
       const payload = {
         staff_id: Number(selectedStaffId),
         amount: amountValue,
         payment_date: salaryForm.paymentDate,
         note: salaryForm.note,
+        amount_change_reason: amountChangeReason,
         signature: {
           signer_name: signerName.trim(),
           signed_at: signedAt,
@@ -361,6 +385,15 @@ export default function AddOutcomePage() {
     : null;
 
   const showTimesheetSummary = Boolean(timesheetSummary);
+  const suggestedAmount = useMemo(() => {
+    if (showTimesheetSummary && timesheetSummary) {
+      return toNumber(timesheetSummary.amount, NaN);
+    }
+    if (!showTimesheetSummary && salaryMetrics) {
+      return toNumber(salaryMetrics.adjustedTotal, NaN);
+    }
+    return NaN;
+  }, [showTimesheetSummary, timesheetSummary, salaryMetrics]);
   const totalSalaryNotePages = Math.max(1, Math.ceil(salaryNotesTotal / 10));
   const openSignatureModal = () => {
     if (!selectedStaffId) return;
@@ -385,6 +418,17 @@ export default function AddOutcomePage() {
     ctx.lineCap = "round";
     ctx.strokeStyle = "#10e055ff";
   }, [signatureModalOpen]);
+
+  useEffect(() => {
+    if (!amountDiscrepancyModal) return;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setAmountDiscrepancyModal(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [amountDiscrepancyModal]);
 
   useEffect(() => {
     if (!signatureModalOpen) return;
@@ -818,6 +862,14 @@ export default function AddOutcomePage() {
                   />
                 </div>
                 <div>
+                  <div className="form-label">Report Amount (PDF)</div>
+                  <input
+                    className="form-input"
+                    value={formatNumber(toNumber(salaryForm.amount, 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    readOnly
+                  />
+                </div>
+                <div>
                   <div className="form-label">{t("outcome.signature.digital_signature")}</div>
                   <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '8px', background: 'var(--surface)' }}>
                     <canvas
@@ -847,6 +899,46 @@ export default function AddOutcomePage() {
                 disabled={signatureSubmitting || !hasSignature || !signerName.trim() || !canSign}
               >
                 {signatureSubmitting ? t("outcome.signature.recording") : t("outcome.signature.record_and_sign")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {amountDiscrepancyModal && (
+        <div className="modal-overlay amount-discrepancy-modal" onClick={handleAmountDiscrepancyCancel}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="amount-discrepancy-title" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div id="amount-discrepancy-title">{t("outcome.amount_discrepancy.title", { defaultValue: "Confirm Amount Change" })}</div>
+            </div>
+            <div className="modal-body">
+              <div className="amount-discrepancy-content">
+                <div>{t("outcome.amount_discrepancy.message", { defaultValue: "Entered amount differs from the calculated salary." })}</div>
+                <div className="amount-discrepancy-stats">
+                  <div className="amount-discrepancy-row">
+                    <span>{t("outcome.amount_discrepancy.calculated", { defaultValue: "Calculated" })}</span>
+                    <strong>{formatNumber(amountDiscrepancyModal.calculated, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </div>
+                  <div className="amount-discrepancy-row">
+                    <span>{t("outcome.amount_discrepancy.entered", { defaultValue: "Entered" })}</span>
+                    <strong>{formatNumber(amountDiscrepancyModal.entered, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </div>
+                  <div className="amount-discrepancy-row">
+                    <span>{t("outcome.amount_discrepancy.delta", { defaultValue: "Difference" })}</span>
+                    <strong>{formatNumber(amountDiscrepancyModal.delta, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </div>
+                </div>
+                <div className="amount-discrepancy-note">
+                  {t("outcome.amount_discrepancy.note", { defaultValue: "Continuing will use the entered amount in the signed PDF report and salary record." })}
+                </div>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={handleAmountDiscrepancyCancel}>
+                {t("common.cancel")}
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleAmountDiscrepancyConfirm}>
+                {t("outcome.amount_discrepancy.confirm", { defaultValue: "Continue" })}
               </button>
             </div>
           </div>

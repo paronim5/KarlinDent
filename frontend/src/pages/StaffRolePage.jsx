@@ -26,8 +26,14 @@ export default function StaffRolePage() {
     endTime: "17:00",
     note: ""
   });
+  const [isTimesheetCollapsed, setIsTimesheetCollapsed] = useState(false);
 
   const [editingId, setEditingId] = useState(null);
+
+  const formatTime = (value) => {
+    if (!value || typeof value !== "string") return "—";
+    return value.slice(0, 5);
+  };
 
   const loadAll = async (rangeFrom = from, rangeTo = to) => {
     setError("");
@@ -40,6 +46,7 @@ export default function StaffRolePage() {
       setStaff(me || null);
       setTimesheets(ts);
     } catch (err) {
+      console.error("Failed to load staff role data", err);
       const msg = err.message;
       if (msg === "staff_not_found") setError(t("staff_role.errors.staff_not_found"));
       else if (msg === "invalid_staff") setError(t("staff_role.errors.invalid_staff"));
@@ -59,6 +66,7 @@ export default function StaffRolePage() {
       const items = await api.get(`/staff/${id}/documents?${params.toString()}`);
       setDocuments(items);
     } catch (err) {
+      console.error("Failed to load salary documents", err);
       setDocumentsError(err.message || t("staff_role.errors.load_documents"));
     } finally {
       setDocumentsLoading(false);
@@ -96,6 +104,7 @@ export default function StaffRolePage() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
+      console.error("Failed to download salary document", err);
       setDocumentsError(err.message || t("staff_role.errors.download_document"));
     }
   };
@@ -114,6 +123,7 @@ export default function StaffRolePage() {
         window.URL.revokeObjectURL(url);
       }, 60000);
     } catch (err) {
+      console.error("Failed to preview salary document", err);
       setDocumentsError(err.message || t("staff_role.errors.preview_document"));
     }
   };
@@ -206,6 +216,7 @@ export default function StaffRolePage() {
       setEditingId(null);
       await loadAll();
     } catch (err) {
+      console.error("Failed to save shift", err);
       const msg = err.message;
       if (msg === "invalid_time_range") setError(t("staff_role.errors.invalid_time_range"));
       else if (msg === "timesheet_not_found") setError(t("staff_role.errors.shift_not_found"));
@@ -234,6 +245,7 @@ export default function StaffRolePage() {
       await api.delete(`/outcome/timesheets/${tsId}`);
       await loadAll();
     } catch (err) {
+      console.error("Failed to delete shift", err);
       const msg = err.message;
       if (msg === "timesheet_not_found") setError(t("staff_role.errors.shift_not_found"));
       else setError(err.message || t("staff_role.errors.delete_shift"));
@@ -283,43 +295,8 @@ export default function StaffRolePage() {
         </div>
       </div>
       
-      <div className="two-col">
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <div className="panel-title">{t("staff_role.timesheet_log")}</div>
-              <div className="panel-meta">{t("staff_role.entries_count", { count: timesheets.length })}</div>
-            </div>
-          </div>
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{t("staff_role.headers.date")}</th>
-                  <th>{t("staff_role.headers.start")}</th>
-                  <th>{t("staff_role.headers.end")}</th>
-                  <th>{t("staff_role.headers.hours")}</th>
-                  <th>{t("staff_role.headers.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {timesheets.map((t) => (
-                  <tr key={t.id}>
-                    <td className="mono">{t.work_date}</td>
-                    <td className="mono">{t.start_time.slice(0, 5)}</td>
-                    <td className="mono">{t.end_time.slice(0, 5)}</td>
-                    <td className="mono" style={{ color: "var(--accent)" }}>{t.hours.toFixed(2)}</td>
-                    <td>
-                      <button className="pay-btn" onClick={() => handleEdit(t)}>{t("staff.actions.edit")}</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="quick-form staff-role-sidepanel">
+      <div className="two-col staff-role-layout">
+        <div className="quick-form staff-role-sidepanel staff-role-controls-panel">
           <div className="panel" style={{ marginBottom: "16px" }}>
             <div className="panel-header">
               <div>
@@ -454,6 +431,54 @@ export default function StaffRolePage() {
               </button>
             </div>
           </form>
+        </div>
+
+        <div className="panel staff-role-timesheet-panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">{t("staff_role.timesheet_log")}</div>
+              <div className="panel-meta">{t("staff_role.entries_count", { count: timesheets.length })}</div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setIsTimesheetCollapsed((prev) => !prev)}
+              aria-expanded={!isTimesheetCollapsed}
+              aria-controls="staff-role-timesheet-log"
+            >
+              {isTimesheetCollapsed ? t("staff_role.expand_log", { defaultValue: "Expand Log" }) : t("staff_role.collapse_log", { defaultValue: "Collapse Log" })}
+            </button>
+          </div>
+          <div
+            id="staff-role-timesheet-log"
+            className={`table-wrapper staff-role-timesheet-table ${isTimesheetCollapsed ? "collapsed" : ""}`}
+            hidden={isTimesheetCollapsed}
+          >
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t("staff_role.headers.date")}</th>
+                  <th>{t("staff_role.headers.start")}</th>
+                  <th>{t("staff_role.headers.end")}</th>
+                  <th>{t("staff_role.headers.hours")}</th>
+                  <th>{t("staff_role.headers.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timesheets.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="mono">{entry.work_date}</td>
+                    <td className="mono">{formatTime(entry.start_time)}</td>
+                    <td className="mono">{formatTime(entry.end_time)}</td>
+                    <td className="mono" style={{ color: "var(--accent)" }}>{Number(entry.hours || 0).toFixed(2)}</td>
+                    <td>
+                      <button className="pay-btn" onClick={() => handleEdit(entry)}>{t("staff.actions.edit")}</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </>

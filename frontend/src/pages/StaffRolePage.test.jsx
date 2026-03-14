@@ -110,3 +110,33 @@ test("uses responsive document filter and action classes", async () => {
   expect(container.querySelector(".doc-filter-input")).toBeTruthy();
   expect(container.querySelector(".doc-actions")).toBeTruthy();
 });
+
+test("renders existing shift row without crashing page", async () => {
+  getMock.mockImplementation((path) => {
+    if (path === "/staff") {
+      return Promise.resolve([
+        { id: 2, first_name: "Viktoriia", last_name: "O", role: "assistant", base_salary: 250 }
+      ]);
+    }
+    if (path.startsWith("/outcome/timesheets")) {
+      return Promise.resolve([
+        { id: 11, work_date: "2026-03-14", start_time: "09:00:00", end_time: "17:00:00", hours: 8 }
+      ]);
+    }
+    if (path.startsWith("/staff/2/documents?")) {
+      return Promise.resolve([]);
+    }
+    return Promise.resolve([]);
+  });
+
+  render(
+    <MemoryRouter initialEntries={["/staff/role/2"]}>
+      <Routes>
+        <Route path="/staff/role/:id" element={<StaffRolePage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  await waitFor(() => expect(screen.getByText("2026-03-14")).toBeTruthy());
+  expect(screen.getByRole("button", { name: "staff.actions.edit" })).toBeTruthy();
+});

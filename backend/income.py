@@ -1435,6 +1435,227 @@ def doctor_commissions(doctor_id: int):
     )
 
 
+@income_bp.route("/doctor/<int:doctor_id>/commission/stats", methods=["GET"])
+def doctor_commission_stats(doctor_id: int):
+    today = date.today()
+    start_param = request.args.get("from")
+    end_param = request.args.get("to")
+    try:
+        start = parse_date(start_param) if start_param else today.replace(day=max(1, today.day - 29))
+        end = parse_date(end_param) if end_param else today
+    except ValueError:
+        return jsonify({"error": "invalid_date_format"}), 400
+    if start > end:
+        return jsonify({"error": "invalid_date_range"}), 400
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT s.id, s.first_name, s.last_name, s.commission_rate
+            FROM staff s
+            JOIN staff_roles r ON r.id = s.role_id
+            WHERE s.id = %s AND r.name = 'doctor' AND s.is_active = TRUE
+            """,
+            (doctor_id,),
+        )
+        doctor_row = cur.fetchone()
+        if not doctor_row:
+            return jsonify({"error": "invalid_doctor"}), 400
+
+        commission_rate = float(doctor_row[3] or 0)
+        if commission_rate <= 0:
+            commission_rate = float(config.DOCTOR_COMMISSION_RATE)
+
+        try:
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(ir.amount), 0) AS total_income,
+                    COALESCE(SUM(ir.amount * s.commission_rate), 0) AS total_commission,
+                    COUNT(ir.id) AS treatment_count,
+                    COUNT(DISTINCT ir.patient_id) AS patient_count
+                FROM income_records ir
+                JOIN staff s ON s.id = ir.doctor_id
+                WHERE ir.doctor_id = %s
+                  AND ir.service_date BETWEEN %s AND %s
+                """,
+                (doctor_id, start, end),
+            )
+        except psycopg2.errors.UndefinedColumn:
+            conn.rollback()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(ir.amount), 0) AS total_income,
+                    COALESCE(SUM(ir.amount) * %s, 0) AS total_commission,
+                    COUNT(ir.id) AS treatment_count,
+                    COUNT(DISTINCT ir.patient_id) AS patient_count
+                FROM income_records ir
+                WHERE ir.doctor_id = %s
+                  AND ir.service_date BETWEEN %s AND %s
+                """,
+                (commission_rate, doctor_id, start, end),
+            )
+        period_row = cur.fetchone()
+
+        cur.execute(
+            """
+            SELECT sp.id, sp.payment_date
+            FROM salary_payments sp
+            WHERE sp.staff_id = %s
+            ORDER BY sp.payment_date DESC, sp.created_at DESC
+            LIMIT 1
+            """,
+            (doctor_id,),
+        )
+        latest_payment_row = cur.fetchone()
+
+        latest_payment = None
+        if latest_payment_row:
+            latest_payment_id = int(latest_payment_row[0])
+            latest_payment_date = latest_payment_row[1].isoformat() if latest_payment_row[1] else None
+            try:
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(ir.amount), 0) AS total_income,
+                        COALESCE(SUM(ir.amount * s.commission_rate), 0) AS total_commission,
+                        COUNT(ir.id) AS treatment_count,
+                        COUNT(DISTINCT ir.patient_id) AS patient_count
+                    FROM income_records ir
+                    JOIN staff s ON s.id = ir.doctor_id
+                    WHERE ir.doctor_id = %s
+                      AND ir.salary_payment_id = %s
+                    """,
+                    (doctor_id, latest_payment_id),
+                )
+            except psycopg2.errors.UndefinedColumn:
+                conn.rollback()
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(ir.amount), 0) AS total_income,
+                        COALESCE(SUM(ir.amount) * %s, 0) AS total_commission,
+                        COUNT(ir.id) AS treatment_count,
+                        COUNT(DISTINCT ir.patient_id) AS patient_count
+                    FROM income_records ir
+                    WHERE ir.doctor_id = %s
+                      AND ir.salary_payment_id = %s
+                    """,
+                    (commission_rate, doctor_id, latest_payment_id),
+                )
+            latest_row = cur.fetchone()
+            latest_payment = {
+                "payment_id": latest_payment_id,
+                "payment_date": latest_payment_date,
+                "commission_rate": round(commission_rate, 4),
+                "total_income": round(float(latest_row[0] or 0), 2),
+                "total_commission": round(float(latest_row[1] or 0), 2),
+                "treatment_count": int(latest_row[2] or 0),
+                "patient_count": int(latest_row[3] or 0),
+            }
+
+        try:
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(ir.amount), 0) AS total_income,
+                    COALESCE(SUM(ir.amount * s.commission_rate), 0) AS total_commission
+                FROM income_records ir
+                JOIN staff s ON s.id = ir.doctor_id
+                WHERE ir.doctor_id = %s
+                  AND ir.service_date = %s
+                """,
+                (doctor_id, today),
+            )
+        except psycopg2.errors.UndefinedColumn:
+            conn.rollback()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(ir.amount), 0) AS total_income,
+                    COALESCE(SUM(ir.amount) * %s, 0) AS total_commission
+                FROM income_records ir
+                WHERE ir.doctor_id = %s
+                  AND ir.service_date = %s
+                """,
+                (commission_rate, doctor_id, today),
+            )
+        current_day_row = cur.fetchone()
+
+        try:
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(ir.amount), 0) AS total_income,
+                    COALESCE(SUM(ir.amount * s.commission_rate), 0) AS total_commission,
+                    COUNT(ir.id) AS treatment_count,
+                    COUNT(DISTINCT ir.patient_id) AS patient_count
+                FROM income_records ir
+                JOIN staff s ON s.id = ir.doctor_id
+                WHERE ir.doctor_id = %s
+                  AND ir.salary_payment_id IS NULL
+                """,
+                (doctor_id,),
+            )
+        except psycopg2.errors.UndefinedColumn:
+            conn.rollback()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(ir.amount), 0) AS total_income,
+                    COALESCE(SUM(ir.amount) * %s, 0) AS total_commission,
+                    COUNT(ir.id) AS treatment_count,
+                    COUNT(DISTINCT ir.patient_id) AS patient_count
+                FROM income_records ir
+                WHERE ir.doctor_id = %s
+                  AND ir.salary_payment_id IS NULL
+                """,
+                (commission_rate, doctor_id),
+            )
+        since_last_payment_row = cur.fetchone()
+    finally:
+        release_connection(conn)
+
+    return jsonify(
+        {
+            "doctor": {
+                "id": int(doctor_row[0]),
+                "first_name": doctor_row[1],
+                "last_name": doctor_row[2],
+                "commission_rate": round(commission_rate, 4),
+            },
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            "totals": {
+                "total_income": round(float(period_row[0] or 0), 2),
+                "total_commission": round(float(period_row[1] or 0), 2),
+                "treatment_count": int(period_row[2] or 0),
+                "patient_count": int(period_row[3] or 0),
+            },
+            "latest_payment": latest_payment,
+            "current_day": {
+                "date": today.isoformat(),
+                "total_income": round(float(current_day_row[0] or 0), 2),
+                "total_commission": round(float(current_day_row[1] or 0), 2),
+            },
+            "since_last_payment": {
+                "from_date": latest_payment["payment_date"] if latest_payment else None,
+                "total_income": round(float(since_last_payment_row[0] or 0), 2),
+                "total_commission": round(float(since_last_payment_row[1] or 0), 2),
+                "treatment_count": int(since_last_payment_row[2] or 0),
+                "patient_count": int(since_last_payment_row[3] or 0),
+            },
+        }
+    )
+
+
 @income_bp.route("/doctor/<int:doctor_id>/commissions/export", methods=["GET"])
 def export_doctor_commissions(doctor_id: int):
     today = date.today()
@@ -1579,6 +1800,7 @@ def doctor_hourly_summary(doctor_id: int):
             cur.execute(
                 f"""
                 SELECT EXTRACT(HOUR FROM (ir.service_date::timestamp + {time_expr}))::INT AS hour,
+                       SUM(ir.amount) AS total_income,
                        SUM(ir.amount * s.commission_rate) AS total_commission,
                        COUNT(DISTINCT ir.patient_id) AS patient_count
                 FROM income_records ir
@@ -1600,6 +1822,7 @@ def doctor_hourly_summary(doctor_id: int):
             cur.execute(
                 f"""
                 SELECT EXTRACT(HOUR FROM (ir.service_date::timestamp + {time_expr}))::INT AS hour,
+                       SUM(ir.amount) AS total_income,
                        SUM(ir.amount * %s) AS total_commission,
                        COUNT(DISTINCT ir.patient_id) AS patient_count
                 FROM income_records ir
@@ -1618,14 +1841,22 @@ def doctor_hourly_summary(doctor_id: int):
     finally:
         release_connection(conn)
 
-    hour_map = {int(r[0]): {"total_commission": float(r[1] or 0), "patient_count": int(r[2] or 0)} for r in rows}
+    hour_map = {
+        int(r[0]): {
+            "total_income": float(r[1] or 0),
+            "total_commission": float(r[2] or 0),
+            "patient_count": int(r[3] or 0),
+        }
+        for r in rows
+    }
     items = []
     for hour in range(24):
-        entry = hour_map.get(hour, {"total_commission": 0.0, "patient_count": 0})
+        entry = hour_map.get(hour, {"total_income": 0.0, "total_commission": 0.0, "patient_count": 0})
         items.append(
             {
                 "hour": hour,
                 "label": f"{hour:02d}:00",
+                "total_income": round(entry["total_income"], 2),
                 "total_commission": round(entry["total_commission"], 2),
                 "patient_count": entry["patient_count"],
             }

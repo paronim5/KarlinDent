@@ -24,6 +24,7 @@ export default function OutcomePage() {
   const [staff, setStaff] = useState([]);
   const [records, setRecords] = useState([]);
   const [salaries, setSalaries] = useState([]);
+  const [viewDate, setViewDate] = useState(new Date());
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [period, setPeriod] = useState(storedPeriod);
@@ -68,7 +69,7 @@ export default function OutcomePage() {
     if (selectedPeriod === "custom") {
         return { from: customRange.from, to: customRange.to };
     }
-    const now = new Date();
+    const now = new Date(viewDate);
     const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     let fromDate = new Date(toDate);
     if (selectedPeriod === "day") {
@@ -78,8 +79,10 @@ export default function OutcomePage() {
       fromDate.setUTCDate(fromDate.getUTCDate() - 6);
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+      toDate.setUTCDate(new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth() + 1, 0)).getUTCDate());
     } else if (selectedPeriod === "year") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+      toDate.setMonth(11, 31);
     }
     const format = (d) => d.toISOString().slice(0, 10);
     return { from: format(fromDate), to: format(toDate) };
@@ -90,7 +93,6 @@ export default function OutcomePage() {
     try {
       const outcomeRecords = await api.get(`/outcome/records?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`);
       setRecords(outcomeRecords);
-      // setSalaries is no longer needed as records contains both
       setSalaries([]); 
       setSelectedOutcomeIds([]);
     } catch (err) {
@@ -110,12 +112,15 @@ export default function OutcomePage() {
           setTo(range.to);
           loadPeriodData(range.from, range.to);
       }
-  }, [period, customRange]);
+  }, [period, customRange, viewDate]);
 
   useEffect(() => {
     const handler = (event) => {
       if (event?.detail?.period) {
         setPeriod(event.detail.period);
+        if (event.detail.date) {
+            setViewDate(new Date(event.detail.date));
+        }
       }
     };
     window.addEventListener("periodChanged", handler);
@@ -213,10 +218,27 @@ export default function OutcomePage() {
 
   const isDeletingOutcome = (id) => deletingOutcomeIds.includes(id);
 
+  const handleGraphClick = (event, elements) => {
+    if (!elements.length) return;
+    const index = elements[0].index;
+    const key = chartData.keys[index];
+
+    if (!key) return;
+
+    if (period === 'year') {
+        setPeriod('month');
+        setViewDate(new Date(`${key}-01`));
+    } else if (period === 'month' || period === 'week') {
+        setPeriod('day');
+        setViewDate(new Date(key));
+    }
+  };
+
   const chartData = useMemo(() => {
     if (!records || records.length === 0) return null;
     
     const isDayView = from === to;
+    const isYearView = period === "year";
     const groups = {};
 
     if (isDayView) {
@@ -224,7 +246,6 @@ export default function OutcomePage() {
       for (let i = 0; i < 24; i++) {
         groups[`${String(i).padStart(2, '0')}:00`] = 0;
       }
-      
       records.forEach((r) => {
         if (r.created_at) {
           const hour = new Date(r.created_at).getHours();
@@ -232,19 +253,54 @@ export default function OutcomePage() {
           groups[label] += r.amount || 0;
         }
       });
+    } else if (isYearView) {
+      // Initialize all 12 months
+      const year = new Date(from).getFullYear();
+      for (let i = 1; i <= 12; i++) {
+        const m = String(i).padStart(2, '0');
+        groups[`${year}-${m}`] = 0;
+      }
+      records.forEach((r) => {
+        const d = r.date || r.expense_date;
+        if (d) {
+            const m = d.slice(0, 7); // YYYY-MM
+            if (groups[m] !== undefined) groups[m] += r.amount || 0;
+        }
+      });
     } else {
+      // Month or Week
+      let curr = new Date(from);
+      const end = new Date(to);
+      while (curr <= end) {
+          const dStr = curr.toISOString().slice(0, 10);
+          groups[dStr] = 0;
+          curr.setDate(curr.getDate() + 1);
+      }
       records.forEach(r => {
           const d = r.date || r.expense_date;
-          if (!groups[d]) groups[d] = 0;
-          groups[d] += r.amount;
+          if (groups[d] !== undefined) groups[d] += r.amount;
       });
     }
     
-    // Sort labels
-    const labels = Object.keys(groups).sort();
-    const data = labels.map(l => groups[l]);
+    const keys = Object.keys(groups).sort();
+    
+    // Format labels
+    const labels = keys.map(k => {
+        if (isDayView) return k; // HH:00
+        if (isYearView) {
+            const date = new Date(`${k}-01`);
+            return date.toLocaleString('default', { month: 'long' });
+        }
+        const date = new Date(k);
+        return period === 'week' 
+            ? date.toLocaleDateString('default', { weekday: 'long' }) 
+            : date.getDate(); 
+    });
+
+    const data = keys.map(l => groups[l]);
 
     return {
+        keys,
         labels,
         datasets: [
             {
@@ -256,15 +312,17 @@ export default function OutcomePage() {
                 pointHoverRadius: 6,
                 pointBackgroundColor: "#e03030",
                 data: data,
-                tension: 0.2
+                tension: 0.2,
+                spanGaps: true
             }
         ]
     };
-  }, [records, t, from, to]);
+  }, [records, t, from, to, period]);
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    onClick: handleGraphClick,
     scales: {
       x: {
         grid: { color: "rgba(255, 215, 0, 0.1)" },

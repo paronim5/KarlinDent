@@ -1590,7 +1590,9 @@ def list_staff():
                        s.total_revenue,
                        s.is_active,
                        r.name,
-                       COALESCE(SUM(sp.amount), 0) AS commission_income
+                       COALESCE(SUM(sp.amount), 0) AS commission_income,
+                       (SELECT COALESCE(SUM(amount - lab_cost), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
+                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments
                 FROM staff s
                 JOIN staff_roles r ON r.id = s.role_id
                 LEFT JOIN salary_payments sp ON sp.staff_id = s.id
@@ -1628,7 +1630,9 @@ def list_staff():
                        s.total_revenue,
                        s.is_active,
                        r.name,
-                       COALESCE(SUM(sp.amount), 0) AS commission_income
+                       COALESCE(SUM(sp.amount), 0) AS commission_income,
+                       (SELECT COALESCE(SUM(amount - lab_cost), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
+                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments
                 FROM staff s
                 JOIN staff_roles r ON r.id = s.role_id
                 LEFT JOIN salary_payments sp ON sp.staff_id = s.id
@@ -1661,6 +1665,8 @@ def list_staff():
         is_active = bool(row[10])
         role_name = row[11]
         commission_income = float(row[12])
+        unpaid_revenue = float(row[13])
+        pending_adjustments = float(row[14])
 
         if commission_rate == 0:
             if total_revenue > 0 and commission_income > 0:
@@ -1669,6 +1675,14 @@ def list_staff():
                 commission_rate = config.DOCTOR_COMMISSION_RATE
         if commission_income == 0 and role_name == "doctor" and total_revenue > 0 and commission_rate > 0:
             commission_income = round(total_revenue * commission_rate, 2)
+
+        unpaid_amount = 0.0
+        if role_name == "doctor":
+            unpaid_amount = round((unpaid_revenue * commission_rate) + pending_adjustments, 2)
+        else:
+            # For non-doctors, unpaid salary will be estimated on the frontend
+            # based on timesheets, or just show pending adjustments here
+            unpaid_amount = pending_adjustments
 
         items.append(
             {
@@ -1683,6 +1697,7 @@ def list_staff():
                 "last_paid_at": last_paid_at,
                 "total_revenue": total_revenue,
                 "commission_income": commission_income,
+                "unpaid_amount": unpaid_amount,
                 "is_active": is_active,
                 "role": role_name,
             }

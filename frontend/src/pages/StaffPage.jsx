@@ -301,6 +301,14 @@ export default function StaffPage() {
     }
   };
 
+  const navigateToMember = (member) => {
+    if (member.role === 'doctor') {
+      navigate(`/staff/doctor/${member.id}`);
+    } else {
+      navigate(`/staff/role/${member.id}`);
+    }
+  };
+
   return (
     <>
       {error && <div className="form-error">{t("staff_role.system_error", { error })}</div>}
@@ -317,7 +325,7 @@ export default function StaffPage() {
           </div>
         </div>
         <div className="table-wrapper">
-          <table className="data-table">
+          <table className="data-table staff-table">
             <thead>
               <tr>
                 <th>{t("staff.table.name")}</th>
@@ -330,18 +338,18 @@ export default function StaffPage() {
             <tbody>
               {filteredStaff.map((member) => (
                 <tr key={member.id}>
-                  <td>
+                  <td data-label={t("staff.table.name")}>
                     <div className="doc-info">
                       <div className="doc-avatar" style={{ background: `hsl(${member.id * 50}, 50%, 50%)` }}>
                         {member.first_name[0]}{member.last_name[0]}
                       </div>
-                      <div>
-                        <div className="doc-name">{member.first_name} {member.last_name}</div>
+                      <div style={{ cursor: 'pointer' }} onClick={() => navigateToMember(member)}>
+                        <div className="doc-name" style={{ textDecoration: 'underline', textDecorationColor: 'rgba(255,255,255,0.2)' }}>{member.first_name} {member.last_name}</div>
                         <div className="doc-role">{member.email}</div>
                       </div>
                     </div>
                   </td>
-                  <td>
+                  <td data-label={t("staff.table.role")}>
                     <span className={`pill ${member.role === 'doctor' ? 'pill-blue' : 'pill-orange'}`}>
                       {(() => {
                         const label = t(`staff.roles.${member.role}`);
@@ -351,22 +359,22 @@ export default function StaffPage() {
                       })()}
                     </span>
                   </td>
-                  <td className="mono">
+                  <td className="mono" data-label={t("staff.table_meta.base_commission")}>
                     {member.role === 'doctor' ? `${((member.commission_rate || 0) * 100).toFixed(1)}%` : (member.base_salary || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                   </td>
-                  <td className="mono" style={{ color: "var(--green)" }}>
+                  <td className="mono" style={{ color: "var(--green)" }} data-label={t("staff.table_meta.total_earned")}>
                     {(() => {
                       const isDoctor = member.role === 'doctor';
                       const val = !isDoctor && wageEstimates[member.id] != null && wageEstimates[member.id] > 0
                         ? wageEstimates[member.id]
-                        : (member.commission_income || 0);
+                        : (member.unpaid_amount || 0);
                       return val.toLocaleString(undefined, { style: "currency", currency: "CZK" });
                     })()}
                   </td>
-                  <td>
+                  <td data-label={t("staff.table_meta.actions")}>
                     <div style={{ display: "flex", gap: "8px" }}>
                       <button className="pay-btn" onClick={() => openPayModal(member)}>{t("staff.actions.pay")}</button>
-                      <button className="pay-btn" onClick={() => member.role === 'doctor' ? navigate(`/staff/doctor/${member.id}`) : navigate(`/staff/role/${member.id}`)}>{t("staff.actions.view")}</button>
+                      <button className="pay-btn" onClick={() => navigateToMember(member)}>{t("staff.actions.view")}</button>
                       <button className="pay-btn" onClick={() => openEditForm(member)}>{t("staff.actions.edit")}</button>
                     </div>
                   </td>

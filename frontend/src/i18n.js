@@ -291,9 +291,9 @@ const resources = {
         },
         "table_meta": {
           "base_commission": "Base/Commission",
-          "total_earned": "Total Earned",
-          "actions": "Actions"
-        },
+        "total_earned": "Unpaid Salary",
+        "actions": "Actions"
+      },
         "pay_modal": {
           "title": "Pay Salary: {{name}}",
           "base_salary": "Base Salary",
@@ -716,9 +716,9 @@ const resources = {
         },
         "table_meta": {
           "base_commission": "Оклад/комиссия",
-          "total_earned": "Всего заработано",
-          "actions": "Действия"
-        },
+        "total_earned": "К выплате (текущий)",
+        "actions": "Действия"
+      },
         "pay_modal": {
           "title": "Выплата зарплаты: {{name}}",
           "base_salary": "Базовый оклад",

@@ -1004,3 +1004,63 @@ select.form-input { cursor: pointer; }
   font-size: 13px;
   color: var(--subtext);
 }
+
+/* ── STAFF TABLE RESPONSIVE ─────────────────────────────────── */
+@media (max-width: 1194px) {
+  .staff-table thead {
+    display: none;
+  }
+  .staff-table, .staff-table tbody, .staff-table tr, .staff-table td {
+    display: block;
+    width: 100%;
+  }
+  .staff-table tr {
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    background: var(--card);
+    position: relative;
+  }
+  .staff-table td {
+    padding: 8px 0;
+    border-bottom: none;
+    text-align: right;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .staff-table td::before {
+    content: attr(data-label);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-right: auto;
+  }
+  
+  /* Specific styling for Name (first cell) */
+  .staff-table td:first-child {
+    text-align: left;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+    display: block; 
+  }
+  .staff-table td:first-child::before {
+    display: none;
+  }
+  .staff-table td:first-child .doc-info {
+    justify-content: flex-start;
+  }
+  
+  /* Actions */
+  .staff-table td:last-child {
+    justify-content: flex-end;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    margin-top: 12px;
+  }
+}

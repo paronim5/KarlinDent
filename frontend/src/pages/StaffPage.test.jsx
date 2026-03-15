@@ -60,10 +60,22 @@ afterEach(() => {
 test("redirects non-doctor pay button to salary outcome form", async () => {
   render(<StaffPage />);
 
-  const payButtons = await screen.findAllByRole("button", { name: "Pay" });
+  const payButtons = await screen.findAllByRole("button", { name: "staff.actions.pay" });
   await userEvent.click(payButtons[0]);
 
   await waitFor(() =>
     expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining("/outcome/add?tab=salary&staff_id=2"))
   );
+});
+
+test("navigates to staff member page when clicking on name", async () => {
+  render(<StaffPage />);
+
+  const assistantName = await screen.findByText("Pasha Kosov");
+  await userEvent.click(assistantName);
+  expect(navigateMock).toHaveBeenCalledWith("/staff/role/2");
+
+  const doctorName = await screen.findByText("Test Doctor");
+  await userEvent.click(doctorName);
+  expect(navigateMock).toHaveBeenCalledWith("/staff/doctor/1");
 });

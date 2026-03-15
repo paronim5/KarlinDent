@@ -21,9 +21,10 @@ export default function IncomePage() {
   const navigate = useNavigate();
   const storedPeriod = typeof window !== "undefined" ? window.localStorage.getItem("globalPeriod") : null;
 
-  const [records, setRecords] = useState([]);
+  const [viewDate, setViewDate] = useState(new Date());
   const [period, setPeriod] = useState(storedPeriod || "month");
   const [customRange, setCustomRange] = useState({ from: "", to: "" });
+  const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -47,7 +48,7 @@ export default function IncomePage() {
     if (selectedPeriod === "custom") {
         return { from: customRange.from, to: customRange.to };
     }
-    const now = new Date();
+    const now = new Date(viewDate);
     const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     let fromDate = new Date(toDate);
     if (selectedPeriod === "day") {
@@ -57,14 +58,16 @@ export default function IncomePage() {
       fromDate.setUTCDate(fromDate.getUTCDate() - 6);
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+      toDate.setUTCDate(new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth() + 1, 0)).getUTCDate());
     } else if (selectedPeriod === "year") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+      toDate.setMonth(11, 31);
     }
     const format = (d) => d.toISOString().slice(0, 10);
     return { from: format(fromDate), to: format(toDate) };
   };
 
-  const range = useMemo(() => computeRange(period), [period, customRange]);
+  const range = useMemo(() => computeRange(period), [period, customRange, viewDate]);
 
   const loadRecords = async (rangeFrom = range.from, rangeTo = range.to) => {
     if (!rangeFrom || !rangeTo) return;
@@ -76,9 +79,10 @@ export default function IncomePage() {
           rangeTo
         )}`
       );
-      setRecords(items);
+      setRecords(Array.isArray(items) ? items : []);
       setSelectedIds([]);
     } catch (err) {
+      setRecords([]); // Ensure records is array on error
       setError(err.message || t("income.errors.load_records"));
     } finally {
       setLoading(false);
@@ -99,11 +103,43 @@ export default function IncomePage() {
     const handler = (event) => {
       if (event?.detail?.period) {
         setPeriod(event.detail.period);
+        // If the global period selector emits a date, use it.
+        // Assuming event.detail.date is present if global selector supports it.
+        // ClinicPage.jsx doesn't seem to emit date, but it uses date.
+        // We will default to today if period changes, unless we want to keep current viewDate.
+        // For now, let's keep viewDate unless we want to reset.
+        if (event.detail.date) {
+            setViewDate(new Date(event.detail.date));
+        }
       }
     };
     window.addEventListener("periodChanged", handler);
     return () => window.removeEventListener("periodChanged", handler);
   }, []);
+
+  const handleGraphClick = (event, elements) => {
+    if (!elements.length) return;
+    const index = elements[0].index;
+    const label = chartData.labels[index];
+    
+    // We need to map label back to a date or key.
+    // In chartData construction, we sorted keys.
+    // So chartData.keys[index] would be ideal if we stored it.
+    // Let's modify chartData to include keys.
+    const key = chartData.keys[index];
+
+    if (!key) return;
+
+    if (period === 'year') {
+        setPeriod('month');
+        setViewDate(new Date(`${key}-01`));
+    } else if (period === 'month' || period === 'week') {
+        setPeriod('day');
+        setViewDate(new Date(key));
+    }
+    // Day view click: do nothing or navigate? ClinicPage navigates.
+    // Here we just stay.
+  };
 
   const dailyTotal = useMemo(
     () => records.reduce((sum, item) => sum + item.amount, 0),
@@ -111,6 +147,7 @@ export default function IncomePage() {
   );
 
   const paymentTotals = useMemo(() => {
+    if (!Array.isArray(records)) return { cash: 0, card: 0, total: 0 };
     return records.reduce(
       (acc, item) => {
         const value = item.amount || 0;
@@ -130,6 +167,7 @@ export default function IncomePage() {
     if (!records || records.length === 0) return null;
     
     const isDayView = range.from === range.to;
+    const isYearView = period === "year";
     const groups = {};
 
     if (isDayView) {
@@ -137,25 +175,76 @@ export default function IncomePage() {
       for (let i = 0; i < 24; i++) {
         groups[`${String(i).padStart(2, '0')}:00`] = 0;
       }
-      
       records.forEach((r) => {
         if (r.created_at) {
-          const hour = new Date(r.created_at).getHours();
-          const label = `${String(hour).padStart(2, '0')}:00`;
-          groups[label] += r.amount || 0;
+          const dt = new Date(r.created_at);
+          if (!isNaN(dt.getTime())) {
+            const hour = dt.getHours();
+            const label = `${String(hour).padStart(2, '0')}:00`;
+            groups[label] += r.amount || 0;
+          }
         }
       });
+    } else if (isYearView) {
+      // Initialize all 12 months
+      const year = new Date(range.from).getFullYear();
+      if (!isNaN(year)) {
+        for (let i = 1; i <= 12; i++) {
+            const m = String(i).padStart(2, '0');
+            groups[`${year}-${m}`] = 0;
+        }
+        records.forEach((r) => {
+            const d = r.service_date; // YYYY-MM-DD
+            if (d) {
+                const m = d.slice(0, 7); // YYYY-MM
+                if (groups[m] !== undefined) {
+                    groups[m] += r.amount || 0;
+                }
+            }
+        });
+      }
     } else {
-      records.forEach((r) => {
-        const d = r.service_date;
-        if (!groups[d]) groups[d] = 0;
-        groups[d] += r.amount || 0;
-      });
+      // Month or Week view - Daily
+      // We should ideally initialize all days in range to 0, but records might be sparse.
+      // ClinicPage likely fills gaps. Let's fill gaps if possible.
+      let curr = new Date(range.from);
+      const end = new Date(range.to);
+      if (!isNaN(curr.getTime()) && !isNaN(end.getTime())) {
+        while (curr <= end) {
+            const dStr = curr.toISOString().slice(0, 10);
+            groups[dStr] = 0;
+            curr.setDate(curr.getDate() + 1);
+        }
+        records.forEach((r) => {
+            const d = r.service_date;
+            if (groups[d] !== undefined) groups[d] += r.amount || 0;
+        });
+      }
     }
 
-    const labels = Object.keys(groups).sort();
-    const data = labels.map((l) => groups[l]);
+    const keys = Object.keys(groups).sort();
+    
+    // Format labels
+    const labels = keys.map(k => {
+        if (isDayView) return k; // HH:00
+        if (isYearView) {
+            // k is YYYY-MM
+            const date = new Date(`${k}-01`);
+            if (isNaN(date.getTime())) return k;
+            return date.toLocaleString('default', { month: 'long' });
+        }
+        // Daily
+        const date = new Date(k);
+        if (isNaN(date.getTime())) return k;
+        return period === 'week' 
+            ? date.toLocaleDateString('default', { weekday: 'long' }) 
+            : date.getDate(); // 1, 2, 3...
+    });
+
+    const data = keys.map((l) => groups[l]);
+    
     return {
+      keys,
       labels,
       datasets: [
         {
@@ -168,14 +257,16 @@ export default function IncomePage() {
           pointBackgroundColor: "#2ecc40",
           data,
           tension: 0.2,
+          spanGaps: true
         },
       ],
     };
-  }, [records, t, range]);
+  }, [records, t, range, period]);
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    onClick: handleGraphClick,
     scales: {
       x: {
         grid: { color: "rgba(255, 215, 0, 0.1)" },

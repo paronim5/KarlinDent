@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend } from "chart.js";
-import { Line, Bar } from "react-chartjs-2";
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from "chart.js";
+import { Line } from "react-chartjs-2";
 import { useApi } from "../api/client.js";
-import PeriodSelector from "../components/PeriodSelector.jsx";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
 export default function DoctorPage() {
   const { id } = useParams();
@@ -14,7 +13,6 @@ export default function DoctorPage() {
 
   const [error, setError] = useState("");
   const [overview, setOverview] = useState(null);
-  const [monthly, setMonthly] = useState([]);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState(storedPeriod);
   const [customRange, setCustomRange] = useState({ from: "", to: "" });
@@ -24,9 +22,17 @@ export default function DoctorPage() {
   const [commissionData, setCommissionData] = useState(null);
   const [commissionLoading, setCommissionLoading] = useState(false);
   const [commissionError, setCommissionError] = useState("");
+  const [commissionStats, setCommissionStats] = useState(null);
+  const [commissionStatsLoading, setCommissionStatsLoading] = useState(false);
+  const [commissionStatsError, setCommissionStatsError] = useState("");
+  const [trendData, setTrendData] = useState([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendError, setTrendError] = useState("");
   const [hourlyData, setHourlyData] = useState(null);
   const [hourlyLoading, setHourlyLoading] = useState(false);
   const [hourlyError, setHourlyError] = useState("");
+  const [showIncome, setShowIncome] = useState(true);
+  const [showOutcome, setShowOutcome] = useState(true);
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
@@ -50,6 +56,10 @@ export default function DoctorPage() {
         position: "bottom",
         labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
       }
+    },
+    animation: {
+      duration: 350,
+      easing: "easeOutQuart"
     }
   };
 
@@ -58,8 +68,10 @@ export default function DoctorPage() {
       return { from: custom.from, to: custom.to };
     }
     const now = new Date();
-    const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    // Default to end of today for day/week, but modify for month/year
+    let toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     let fromDate = new Date(toDate);
+
     if (selectedPeriod === "day") {
       fromDate = new Date(toDate);
     } else if (selectedPeriod === "week") {
@@ -67,8 +79,12 @@ export default function DoctorPage() {
       fromDate.setUTCDate(fromDate.getUTCDate() - 6);
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+      // End of month
+      toDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth() + 1, 0));
     } else if (selectedPeriod === "year") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+      // End of year
+      toDate = new Date(Date.UTC(toDate.getUTCFullYear(), 11, 31));
     }
     const format = (d) => d.toISOString().slice(0, 10);
     return { from: format(fromDate), to: format(toDate) };
@@ -76,17 +92,34 @@ export default function DoctorPage() {
 
   const formatCurrency = (value) =>
     Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
+  const weekdayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const monthLabels = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ];
+  const periodLabels = {
+    day: "Day",
+    week: "Week",
+    month: "Month",
+    year: "Year"
+  };
 
   const loadOverview = async () => {
     setLoading(true);
     setError("");
     try {
-      const [ov, monthlyItems] = await Promise.all([
-        api.get(`/income/doctor/${id}/overview`),
-        api.get(`/income/doctor/${id}/summary/monthly`)
-      ]);
+      const ov = await api.get(`/income/doctor/${id}/overview`);
       setOverview(ov);
-      setMonthly(monthlyItems);
     } catch (err) {
       if (err && err.message === "invalid_doctor") {
         setError("This staff member is not a doctor or is inactive.");
@@ -112,6 +145,50 @@ export default function DoctorPage() {
     } finally {
       setCommissionLoading(false);
     }
+  };
+
+  const loadCommissionStats = async (rangeFrom, rangeTo) => {
+    if (!rangeFrom || !rangeTo) return;
+    setCommissionStatsLoading(true);
+    setCommissionStatsError("");
+    try {
+      const data = await api.get(
+        `/income/doctor/${id}/commission/stats?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`
+      );
+      setCommissionStats(data);
+    } catch (err) {
+      setCommissionStatsError(err.message || "Unable to load commission statistics");
+    } finally {
+      setCommissionStatsLoading(false);
+    }
+  };
+
+  const loadTrend = async (rangeFrom, rangeTo) => {
+    if (!rangeFrom || !rangeTo) return;
+    setTrendLoading(true);
+    setTrendError("");
+    try {
+      const data = await api.get(
+        `/income/doctor/${id}/summary/daily?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`
+      );
+      setTrendData(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setTrendError(err.message || "Unable to load trend statistics");
+    } finally {
+      setTrendLoading(false);
+    }
+  };
+
+  const resolveTrendRange = (activePeriod, sourceRange) => {
+    if (!sourceRange?.from || !sourceRange?.to) return null;
+    if (activePeriod === "month" || activePeriod === "year") {
+      const year = Number(sourceRange.to.slice(0, 4) || new Date().getUTCFullYear());
+      return {
+        from: `${year}-01-01`,
+        to: `${year}-12-31`
+      };
+    }
+    return { from: sourceRange.from, to: sourceRange.to };
   };
 
   const loadHourly = async (dateValue) => {
@@ -205,8 +282,15 @@ export default function DoctorPage() {
   useEffect(() => {
     if (range.from && range.to) {
       loadCommissions(range.from, range.to);
+      loadCommissionStats(range.from, range.to);
+      if (period !== "day") {
+        const trendRange = resolveTrendRange(period, range);
+        if (trendRange) {
+          loadTrend(trendRange.from, trendRange.to);
+        }
+      }
     }
-  }, [id, range.from, range.to]);
+  }, [id, range.from, range.to, period]);
 
   useEffect(() => {
     if (documentFilter.from || documentFilter.to) {
@@ -215,26 +299,39 @@ export default function DoctorPage() {
   }, [id, documentFilter.from, documentFilter.to]);
 
   useEffect(() => {
-    if (selectedDate) {
+    if (period === "day" && selectedDate) {
       loadHourly(selectedDate);
+      return;
     }
-  }, [id, selectedDate]);
+    setHourlyData(null);
+    setHourlyError("");
+  }, [id, selectedDate, period]);
 
   useEffect(() => {
     const handler = (event) => {
-      if (event?.detail?.from && event?.detail?.to && event?.detail?.period) {
-        setPeriod(event.detail.period);
-        setCustomRange({ from: event.detail.from, to: event.detail.to });
-        setRange({ from: event.detail.from, to: event.detail.to });
-        setSelectedDate(event.detail.to);
+      if (event?.detail?.period) {
+        const newPeriod = event.detail.period;
+        setPeriod(newPeriod);
+        // Recalculate range locally to ensure full month/year view
+        // Layout event provides ranges capped at today, but we want full view
+        const calculated = computeRange(newPeriod, customRange);
+        setRange(calculated);
+        setSelectedDate(calculated.to);
       }
     };
     const refresh = () => {
       loadOverview();
       if (range.from && range.to) {
         loadCommissions(range.from, range.to);
+        loadCommissionStats(range.from, range.to);
+        if (period !== "day") {
+          const trendRange = resolveTrendRange(period, range);
+          if (trendRange) {
+            loadTrend(trendRange.from, trendRange.to);
+          }
+        }
       }
-      if (selectedDate) {
+      if (period === "day" && selectedDate) {
         loadHourly(selectedDate);
       }
     };
@@ -244,52 +341,163 @@ export default function DoctorPage() {
       window.removeEventListener("periodChanged", handler);
       window.removeEventListener("incomeAdded", refresh);
     };
-  }, [range.from, range.to, selectedDate, id]);
+  }, [range.from, range.to, selectedDate, id, period]);
 
-  const monthlyChartData = useMemo(() => {
-    if (!monthly || monthly.length === 0) return null;
-    const labels = monthly.map((m) => m.month);
+  const graphPoints = useMemo(() => {
+    if (period === "day") {
+      const hoursMap = {};
+      if (hourlyData?.hours) {
+        hourlyData.hours.forEach(h => {
+          hoursMap[Number(h.hour)] = h;
+        });
+      }
+      
+      const points = [];
+      for (let i = 0; i < 24; i++) {
+        const hData = hoursMap[i] || {};
+        points.push({
+          label: `${String(i).padStart(2, '0')}:00`,
+          key: selectedDate ? `${selectedDate}T${String(i).padStart(2, '0')}:00` : null,
+          total_income: Number(hData.total_income || 0),
+          total_commission: Number(hData.total_commission || 0),
+          patient_count: Number(hData.patient_count || 0)
+        });
+      }
+      return points;
+    }
+
+    const source = Array.isArray(trendData) ? trendData : [];
+    const points = [];
+
+    if (period === "year") {
+      // Group by Month (YYYY-MM)
+      const yearStr = (range.from || "").slice(0, 4);
+      const groups = {};
+      // Initialize 12 months
+      for (let i = 1; i <= 12; i++) {
+        const m = String(i).padStart(2, '0');
+        groups[`${yearStr}-${m}`] = { income: 0, commission: 0 };
+      }
+
+      source.forEach(item => {
+        const m = (item.day || "").slice(0, 7); // YYYY-MM
+        if (groups[m]) {
+          groups[m].income += Number(item.total_income || 0);
+          groups[m].commission += Number(item.total_commission || 0);
+        }
+      });
+
+      Object.keys(groups).sort().forEach(key => {
+         const date = new Date(`${key}-01`);
+         const label = !isNaN(date.getTime()) 
+            ? date.toLocaleString('default', { month: 'long' }) 
+            : key;
+         points.push({
+            label,
+            key: `${key}-01`, // First day of month for click navigation
+            total_income: groups[key].income,
+            total_commission: groups[key].commission
+         });
+      });
+    } else {
+      // Daily view (Month, Week, Custom)
+      // Fill gaps between range.from and range.to
+      const start = new Date(range.from);
+      const end = new Date(range.to);
+      const dataMap = {};
+      source.forEach(item => {
+        dataMap[item.day] = item;
+      });
+
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        let curr = new Date(start);
+        while (curr <= end) {
+          const dStr = curr.toISOString().slice(0, 10);
+          const item = dataMap[dStr] || {};
+          
+          let label = dStr;
+          if (period === 'week') {
+             label = curr.toLocaleDateString('default', { weekday: 'long' });
+          } else if (period === 'month') {
+             label = curr.getDate(); // 1, 2, ...
+          }
+
+          points.push({
+            label,
+            key: dStr,
+            total_income: Number(item.total_income || 0),
+            total_commission: Number(item.total_commission || 0)
+          });
+          curr.setDate(curr.getDate() + 1);
+        }
+      }
+    }
+    return points;
+  }, [hourlyData, period, trendData, selectedDate, range]);
+
+  const trendChartData = useMemo(() => {
+    if (!graphPoints.length) return null;
+    const labels = graphPoints.map((point) => point.label);
+    const datasets = [];
+    if (showIncome) {
+      datasets.push({
+        label: "INCOME",
+        data: graphPoints.map((point) => point.total_income),
+        borderColor: "#2ecc40",
+        backgroundColor: "rgba(46, 204, 64, 0.1)",
+        borderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBackgroundColor: "#2ecc40",
+        tension: 0.2,
+        spanGaps: true
+      });
+    }
+    if (showOutcome) {
+      datasets.push({
+        label: "OUTCOME",
+        data: graphPoints.map((point) => point.total_commission),
+        borderColor: "#e03030",
+        backgroundColor: "rgba(224, 48, 48, 0.1)",
+        borderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBackgroundColor: "#e03030",
+        tension: 0.2,
+        spanGaps: true
+      });
+    }
     return {
       labels,
-      datasets: [
-        {
-          label: "INCOME",
-          data: monthly.map((m) => m.total_income),
-          backgroundColor: "rgba(0, 212, 255, 0.7)",
-          borderColor: "#00d4ff",
-          borderWidth: 2
-        },
-        {
-          label: "COMMISSION",
-          data: monthly.map((m) => m.total_commission),
-          backgroundColor: "rgba(46, 204, 64, 0.7)",
-          borderColor: "#2ecc40",
-          borderWidth: 2
-        }
-      ]
+      datasets
     };
-  }, [monthly]);
+  }, [graphPoints, showIncome, showOutcome]);
 
-  const hourlyChartData = useMemo(() => {
-    if (!hourlyData || !hourlyData.hours || hourlyData.hours.length === 0) return null;
-    const labels = hourlyData.hours.map((h) => h.label);
-    return {
-      labels,
-      datasets: [
-        {
-          label: "COMMISSION",
-          data: hourlyData.hours.map((h) => h.total_commission),
-          borderColor: "#2ecc40",
-          backgroundColor: "rgba(46, 204, 64, 0.2)",
-          borderWidth: 2,
-          pointRadius: 3,
-          tension: 0.2
-        }
-      ]
-    };
-  }, [hourlyData]);
+  const handleGraphClick = (_event, elements) => {
+    if (!elements?.length) return;
+    const index = elements[0].index;
+    const item = graphPoints[index];
+    if (!item?.key) return;
+    if (period === "year") {
+      const baseDate = new Date(`${item.key}T00:00:00Z`);
+      const from = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), 1));
+      const to = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 0));
+      const fromValue = from.toISOString().slice(0, 10);
+      const toValue = to.toISOString().slice(0, 10);
+      setPeriod("month");
+      setCustomRange({ from: fromValue, to: toValue });
+      setRange({ from: fromValue, to: toValue });
+      setSelectedDate(toValue);
+      return;
+    }
+    if (period === "month" || period === "week") {
+      setPeriod("day");
+      setSelectedDate(item.key);
+      setRange({ from: item.key, to: item.key });
+    }
+  };
 
-  const hourlyChartOptions = useMemo(() => {
+  const trendChartOptions = useMemo(() => {
     return {
       ...chartOptions,
       plugins: {
@@ -300,14 +508,14 @@ export default function DoctorPage() {
           callbacks: {
             label: (context) => {
               const value = context.parsed.y || 0;
-              const count = hourlyData?.hours?.[context.dataIndex]?.patient_count || 0;
-              return `Commission: ${formatCurrency(value)} · Patients: ${count}`;
+              return `${context.dataset.label}: ${formatCurrency(value)}`;
             }
           }
         }
-      }
+      },
+      onClick: handleGraphClick
     };
-  }, [hourlyData]);
+  }, [graphPoints, period]);
 
   const commissionRows = useMemo(() => {
     if (!commissionData?.patients) return [];
@@ -316,12 +524,15 @@ export default function DoctorPage() {
         ...treatment,
         patientName: patient.name
       }))
-    );
+    ).sort((a, b) => {
+      const leftDate = new Date(`${a.service_date}T${a.service_time || "00:00"}:00Z`).getTime();
+      const rightDate = new Date(`${b.service_date}T${b.service_time || "00:00"}:00Z`).getTime();
+      if (rightDate !== leftDate) {
+        return rightDate - leftDate;
+      }
+      return Number(b.id || 0) - Number(a.id || 0);
+    });
   }, [commissionData]);
-
-  const handlePeriodChange = (value) => {
-    setPeriod(value);
-  };
 
   const handleCustomRangeChange = (field, value) => {
     setCustomRange((prev) => ({ ...prev, [field]: value }));
@@ -351,6 +562,16 @@ export default function DoctorPage() {
     );
   };
 
+  const graphLoading = period === "day" ? hourlyLoading : trendLoading;
+  const graphError = period === "day" ? hourlyError : trendError;
+  const latestPayment = commissionStats?.latest_payment || null;
+  const currentTotals = commissionStats?.totals || null;
+  const dayEarnings = period === "day"
+    ? graphPoints.reduce((sum, item) => sum + Number(item.total_commission || 0), 0)
+    : Number(commissionStats?.current_day?.total_commission || 0);
+  const sinceLastPayment = Number(commissionStats?.since_last_payment?.total_commission || 0);
+  const sinceLastPaymentDate = commissionStats?.since_last_payment?.from_date || null;
+
   return (
     <>
       {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
@@ -362,7 +583,6 @@ export default function DoctorPage() {
               <div>
                 <div className="panel-title">Commission Filters</div>
                 <div className="panel-meta" style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center" }}>
-                  <PeriodSelector value={period} onChange={handlePeriodChange} options={["day", "week", "month", "year"]} />
                   <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                     <input
                       type="date"
@@ -390,6 +610,9 @@ export default function DoctorPage() {
                       style={{ padding: "4px 8px", fontSize: "12px", width: "auto" }}
                     />
                   </div>
+                  <span style={{ fontSize: "12px", color: "var(--subtext)" }}>
+                    Use top period buttons for Day/Week/Month/Year
+                  </span>
                   {rangeError && <span style={{ color: "var(--red)", fontSize: "12px" }}>{rangeError}</span>}
                 </div>
               </div>
@@ -407,64 +630,84 @@ export default function DoctorPage() {
           <div className="stat-strip">
             <div className="stat-card s-blue">
               <div className="stat-icon">◉</div>
-              <div className="stat-label">Lifetime Patients</div>
-              <div className="stat-value">{overview.lifetime.patient_count}</div>
+              <div className="stat-label">Period Patients</div>
+              <div className="stat-value">{commissionStatsLoading ? "—" : (currentTotals?.patient_count ?? 0)}</div>
             </div>
             <div className="stat-card s-orange">
               <div className="stat-icon">↗</div>
-              <div className="stat-label">Lifetime Income</div>
+              <div className="stat-label">Period Income</div>
               <div className="stat-value">
-                {overview.lifetime.total_income.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                {commissionStatsLoading ? "—" : formatCurrency(currentTotals?.total_income)}
               </div>
             </div>
             <div className="stat-card s-green">
               <div className="stat-icon">↗</div>
-              <div className="stat-label">Lifetime Commission</div>
+              <div className="stat-label">Period Commission</div>
               <div className="stat-value">
-                {overview.lifetime.total_commission.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                {commissionStatsLoading ? "—" : formatCurrency(currentTotals?.total_commission)}
               </div>
             </div>
             <div className="stat-card s-green">
               <div className="stat-icon">◈</div>
-              <div className="stat-label">Avg Commission/Patient</div>
+              <div className="stat-label">Commission Rate</div>
               <div className="stat-value">
-                {overview.lifetime.avg_commission_per_patient.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                {commissionStatsLoading ? "—" : `${((commissionStats?.doctor?.commission_rate || 0) * 100).toFixed(2)}%`}
               </div>
             </div>
           </div>
+          {commissionStatsError && <div className="form-error">{commissionStatsError}</div>}
 
           <div className="two-col">
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <div className="panel-title">Hourly Commission</div>
-                  <div className="panel-meta">{selectedDate || "Select a date"}</div>
+                  <div className="panel-title">Daily Income vs Outcome</div>
+                  <div className="panel-meta">{`${periodLabels[period] || "Period"} statistics`}</div>
                 </div>
               </div>
-              <div className="chart-area">
-                {hourlyLoading && <div>Loading hourly stats...</div>}
-                {!hourlyLoading && hourlyError && <div>{hourlyError}</div>}
-                {!hourlyLoading && !hourlyError && hourlyChartData && (
-                  <Line data={hourlyChartData} options={hourlyChartOptions} />
+              <div className="chart-area" style={{ height: "400px" }}>
+                <div style={{ display: "flex", gap: "20px", justifyContent: "flex-end", marginBottom: "10px" }}>
+                  <label className="check-row">
+                    <input type="checkbox" checked={showIncome} onChange={(e) => setShowIncome(e.target.checked)} />
+                    INCOME
+                  </label>
+                  <label className="check-row">
+                    <input type="checkbox" checked={showOutcome} onChange={(e) => setShowOutcome(e.target.checked)} />
+                    OUTCOME
+                  </label>
+                </div>
+                {graphLoading && <div>Loading graph data...</div>}
+                {!graphLoading && graphError && <div>{graphError}</div>}
+                {!graphLoading && !graphError && trendChartData && trendChartData.datasets.length > 0 && (
+                  <Line data={trendChartData} options={trendChartOptions} />
                 )}
-                {!hourlyLoading && !hourlyError && !hourlyChartData && (
-                  <div>No data for selected date</div>
+                {!graphLoading && !graphError && (!trendChartData || trendChartData.datasets.length === 0) && (
+                  <div>No graph data for selected period</div>
                 )}
               </div>
             </div>
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <div className="panel-title">Monthly Performance</div>
-                  <div className="panel-meta">Last 12 months</div>
+                  <div className="panel-title">Doctor Earnings Stats</div>
+                  <div className="panel-meta">
+                    {latestPayment
+                      ? `Latest payment ${latestPayment.payment_date} · ${(latestPayment.commission_rate * 100).toFixed(2)}%`
+                      : "No payment history"}
+                  </div>
                 </div>
               </div>
-              <div className="chart-area">
-                {monthlyChartData ? (
-                  <Bar data={monthlyChartData} options={chartOptions} />
-                ) : (
-                  <div>No monthly data</div>
-                )}
+              <div style={{ padding: "16px", display: "grid", gap: "12px" }}>
+                <div className="mono" style={{ fontSize: "14px" }}>
+                  {period === "day"
+                    ? `Current day earnings (${selectedDate || "today"}): ${formatCurrency(dayEarnings)}`
+                    : "Current day earnings: available in Day view"}
+                </div>
+                <div className="mono" style={{ fontSize: "14px" }}>
+                  {sinceLastPaymentDate
+                    ? `Total earnings since last salary payment (${sinceLastPaymentDate}): ${formatCurrency(sinceLastPayment)}`
+                    : `Total earnings since last salary payment date: ${formatCurrency(sinceLastPayment)}`}
+                </div>
               </div>
             </div>
           </div>

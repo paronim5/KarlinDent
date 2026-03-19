@@ -39,7 +39,7 @@ export default function IncomePage() {
       month: t("income.period.month"),
       week: t("income.period.week"),
       day: t("income.period.day"),
-      custom: "Custom"
+      custom: t("income.period.custom")
     }),
     [t]
   );

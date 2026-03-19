@@ -20,7 +20,7 @@ export default function DayDashboardPage() {
         const result = await api.get(`/clinic/dashboard/day-details?date=${date}`);
         setData(result);
       } catch (err) {
-        setError(err.message || "Failed to load day details");
+        setError(err.message || t("clinic.day_details.failed_load"));
       } finally {
         setLoading(false);
       }
@@ -40,10 +40,10 @@ export default function DayDashboardPage() {
       <div className="panel-header" style={{ borderBottom: 'none', paddingLeft: 0 }}>
         <div>
             <button className="btn btn-ghost" onClick={() => navigate("/clinic")} style={{ marginBottom: '1rem' }}>
-                ← Back to Dashboard
+                ← {t("clinic.day_details.back_to_dashboard")}
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <div className="panel-title">Day Overview: {data.date}</div>
+                <div className="panel-title">{t("clinic.day_details.day_overview")}: {data.date}</div>
                 <input 
                     type="date" 
                     value={data.date} 
@@ -56,19 +56,19 @@ export default function DayDashboardPage() {
 
       <div className="stat-strip">
         <div className="stat-card s-orange">
-          <div className="stat-label">Total Income</div>
+          <div className="stat-label">{t("clinic.total_income")}</div>
           <div className="stat-value">{formatCurrency(data.metrics.total_income)}</div>
         </div>
         <div className="stat-card s-red">
-          <div className="stat-label">Total Outcome</div>
+          <div className="stat-label">{t("clinic.total_outcome")}</div>
           <div className="stat-value">{formatCurrency(data.metrics.total_outcome)}</div>
         </div>
         <div className="stat-card s-green">
-          <div className="stat-label">Net Profit</div>
+          <div className="stat-label">{t("clinic.net_profit")}</div>
           <div className="stat-value">{formatCurrency(data.metrics.net_profit)}</div>
         </div>
         <div className="stat-card s-blue">
-            <div className="stat-label">Patients</div>
+            <div className="stat-label">{t("clinic.patients.unique")}</div>
             <div className="stat-value">{data.patient_count}</div>
         </div>
       </div>
@@ -76,7 +76,7 @@ export default function DayDashboardPage() {
       <div className="two-col" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div className="panel">
             <div className="panel-header">
-                <div className="panel-title">Highest Earning Doctor</div>
+                <div className="panel-title">{t("clinic.day_details.highest_earning_doctor")}</div>
             </div>
             <div style={{ padding: '20px' }}>
                 {data.highest_earning_doctor ? (
@@ -87,14 +87,14 @@ export default function DayDashboardPage() {
                         </div>
                     </div>
                 ) : (
-                    <div className="text-subtext">No data available</div>
+                    <div className="text-subtext">{t("clinic.day_details.no_data")}</div>
                 )}
             </div>
         </div>
 
         <div className="panel">
             <div className="panel-header">
-                <div className="panel-title">Revenue Breakdown</div>
+                <div className="panel-title">{t("clinic.day_details.revenue_breakdown")}</div>
             </div>
             <table className="data-table">
                 <tbody>

@@ -425,7 +425,7 @@ export default function OutcomePage() {
                     />
                 </div>
                 <div className="outcome-header-total" style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                    {t("outcome.total")}: <strong>{(totalOutcome || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                    {t("outcome.table.amount")}: <strong>{(totalOutcome || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                 </div>
           </div>
         </div>

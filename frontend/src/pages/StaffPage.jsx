@@ -189,39 +189,32 @@ export default function StaffPage() {
   };
 
   const openPayModal = async (member) => {
-      if (member.role !== "doctor") {
+      if (member.role === 'doctor') {
           const params = new URLSearchParams();
           params.set("tab", "salary");
           params.set("staff_id", String(member.id));
-          const today = new Date();
-          const from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-          const to = today.toISOString().slice(0, 10);
-          params.set("from", from);
-          params.set("to", to);
           navigate(`/outcome/add?${params.toString()}`);
           return;
       }
       try {
           const estimate = await api.get(`/staff/${member.id}/salary-estimate`);
-          setPayModal({ member, estimate });
+          // Instead of opening a local modal that bypasses signing, 
+          // we redirect to the specialized AddOutcomePage which has the signature workflow.
+          const params = new URLSearchParams();
+          params.set("tab", "salary");
+          params.set("staff_id", String(member.id));
+          if (estimate && estimate.estimated_total) {
+              params.set("amount", estimate.estimated_total.toFixed(2));
+          }
+          navigate(`/outcome/add?${params.toString()}`);
       } catch (err) {
           setError("Failed to load salary estimate");
       }
   };
 
-  const handlePaySalary = async () => {
-      if (!payModal) return;
-      setPaying(true);
-      setError("");
-      try {
-          await api.post("/staff/salaries", { staff_id: payModal.member.id });
-          setPayModal(null);
-          await loadStaff();
-      } catch (err) {
-          setError(err.message || "Payment failed");
-      } finally {
-          setPaying(false);
-      }
+  const handlePaySalary = () => {
+      // This function is now redundant as we redirect to AddOutcomePage
+      setPayModal(null);
   };
 
   const handleRemove = async (member) => {

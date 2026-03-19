@@ -107,6 +107,14 @@ const resources = {
           "outcome": "OUTCOME",
           "profit": "PROFIT"
         },
+        "day_details": {
+          "failed_load": "Failed to load day details",
+          "back_to_dashboard": "Back to Dashboard",
+          "day_overview": "Day Overview",
+          "highest_earning_doctor": "Highest Earning Doctor",
+          "revenue_breakdown": "Revenue Breakdown",
+          "no_data": "No data available"
+        },
         "errors": {
           "load_dashboard": "Unable to load dashboard"
         }
@@ -124,7 +132,8 @@ const resources = {
           "year": "Year",
           "month": "Month",
           "week": "Week",
-          "day": "Day"
+          "day": "Day",
+          "custom": "Custom"
         },
         "stats": {
           "total": "Total Income",
@@ -532,6 +541,14 @@ const resources = {
           "outcome": "РАСХОД",
           "profit": "ПРИБЫЛЬ"
         },
+        "day_details": {
+          "failed_load": "Не удалось загрузить сведения за день",
+          "back_to_dashboard": "Назад к дашборду",
+          "day_overview": "Обзор дня",
+          "highest_earning_doctor": "Самый прибыльный врач",
+          "revenue_breakdown": "Распределение доходов",
+          "no_data": "Нет данных"
+        },
         "errors": {
           "load_dashboard": "Не удалось загрузить дашборд"
         }
@@ -549,7 +566,8 @@ const resources = {
           "year": "Год",
           "month": "Месяц",
           "week": "Неделя",
-          "day": "День"
+          "day": "День",
+          "custom": "Свой период"
         },
         "stats": {
           "total": "Общий доход",
@@ -849,6 +867,440 @@ const resources = {
           "save_shift": "Не удалось сохранить смену: {{message}}",
           "delete_shift": "Не удалось удалить смену: {{message}}",
           "confirm_delete": "Вы уверены, что хотите удалить эту смену?"
+        }
+      }
+    }
+  },
+  cs: {
+    translation: {
+      "nav": {
+        "overview": "Přehled",
+        "workforce": "Zaměstnanci",
+        "payroll": "Mzdy",
+        "dashboard": "Nástěnka",
+        "income": "Příjmy",
+        "expenses": "Výdaje",
+        "staff": "Personál",
+        "my_income": "Můj příjem",
+        "schedule": "Rozvrh",
+        "export": "Exportovat",
+        "add_income": "Přidat příjem",
+        "add_outcome": "Přidat výdaj"
+      },
+      "common": {
+        "period_active": "AKTIVNÍ OBDOBÍ",
+        "search": "Hledat...",
+        "cancel": "Zrušit",
+        "save": "Uložit",
+        "delete": "Smazat",
+        "edit": "Upravit",
+        "loading": "Načítání...",
+        "error": "Došlo k chybě",
+        "retry": "Zkusit znovu",
+        "export_csv": "Exportovat CSV",
+        "export_pdf": "Exportovat PDF",
+        "view": "Zobrazit",
+        "none": "Žádné",
+        "never": "Nikdy"
+      },
+      "clinic": {
+        "total_income": "Celkový příjem",
+        "total_outcome": "Celkové výdaje",
+        "payroll_due": "K výplatě",
+        "net_profit": "Čistý zisk",
+        "active_staff": "Aktivní personál",
+        "unique_patients": "Unikátní pacienti",
+        "daily_pnl": "Denní P&L",
+        "daily_income_outcome": "Denní příjmy vs výdaje",
+        "last_30_days": "Posledních 30 dní",
+        "period_meta": "Statistiky za {{period}}",
+        "sections": {
+          "financial": "Finanční přehled",
+          "patients": "Informace o pacientech",
+          "doctors": "Výkon lékařů",
+          "expenses": "Analýza výdajů",
+          "operations": "Provozní zdraví"
+        },
+        "financial": {
+          "net_profit": "Čistý zisk",
+          "income_trend": "Trend příjmů",
+          "expense_trend": "Trend výdajů",
+          "payment_ratio": "Poměr hotovost vs karta",
+          "lab_ratio": "Náklady na lab. % z příjmů"
+        },
+        "patients": {
+          "unique": "Unikátní pacienti",
+          "new": "Noví pacienti",
+          "returning": "Vracející se pacienti",
+          "avg_visit": "Průměrný příjem na návštěvu",
+          "top_spenders": "Nejvíce platící pacienti",
+          "patient": "Pacient",
+          "total_spend": "Celkem zaplaceno",
+          "visits": "Návštěvy"
+        },
+        "doctors": {
+          "doctor": "Lékař",
+          "revenue": "Tržby",
+          "visits": "Návštěvy",
+          "avg_visit": "Průměrná hodnota návštěvy"
+        },
+        "expenses": {
+          "salary_ratio": "Mzdové náklady % z příjmů",
+          "by_category": "Výdaje podle kategorií",
+          "category": "Kategorie",
+          "total": "Celkem",
+          "trend": "Meziměsíční výdaje",
+          "month": "Měsíc"
+        },
+        "operations": {
+          "staff": "Personál",
+          "days_since_salary": "Dní od poslední výplaty",
+          "busiest_days": "Nejvytíženější dny",
+          "day": "Den",
+          "visits": "Návštěvy",
+          "outstanding_commission": "Nevyplacené provize lékařů",
+          "amount": "Částka"
+        },
+        "weekdays": {
+          "sun": "Neděle",
+          "mon": "Pondělí",
+          "tue": "Úterý",
+          "wed": "Středa",
+          "thu": "Čtvrtek",
+          "fri": "Pátek",
+          "sat": "Sobota"
+        },
+        "chart": {
+          "income": "PŘÍJEM",
+          "outcome": "VÝDAJ",
+          "profit": "ZISK"
+        },
+        "day_details": {
+          "failed_load": "Nepodařilo se načíst podrobnosti o dni",
+          "back_to_dashboard": "Zpět na nástěnku",
+          "day_overview": "Přehled dne",
+          "highest_earning_doctor": "Nejvýdělečnější lékař",
+          "revenue_breakdown": "Rozpis tržeb",
+          "no_data": "Nejsou k dispozici žádná data"
+        },
+        "errors": {
+          "load_dashboard": "Nepodařilo se načíst nástěnku"
+        }
+      },
+      "income": {
+        "title": "Správa příjmů",
+        "trend_title": "Trend příjmů",
+        "date_range": {
+          "from": "OD",
+          "to": "DO"
+        },
+        "period_selector": "Výběr období",
+        "period_meta": "Statistiky za {{period}}",
+        "period": {
+          "year": "Rok",
+          "month": "Měsíc",
+          "week": "Týden",
+          "day": "Den",
+          "custom": "Vlastní"
+        },
+        "stats": {
+          "total": "Celkový příjem",
+          "records": "Počet záznamů",
+          "avg": "Průměr na pacienta"
+        },
+        "form": {
+          "add_record": "Přidat záznam o příjmu",
+          "patient": "Pacient",
+          "doctor": "Lékař",
+          "amount": "Částka",
+          "payment_method": "Způsob platby",
+          "note": "Poznámka",
+          "cash": "Hotovost",
+          "card": "Karta",
+          "new_patient": "Příjmení nového pacienta",
+          "submit": "Zaznamenat transakci",
+          "lab_work": "Laboratorní práce",
+          "lab_required": "Vyžadována extra laboratorní práce",
+          "lab_cost": "Poplatek za lab.",
+          "lab_note": "Poznámka k lab.",
+          "lab_cost_note": "* Bude odečteno z provize lékaře",
+          "patient_compact_label": "Pacient (Příjmení Jméno)",
+          "more_details": "Více podrobností",
+          "phone": "Telefonní číslo",
+          "street": "Ulice",
+          "city": "Město",
+          "zip": "PSČ",
+          "receipt_issued": "Účtenka vydána",
+          "receipt_reason": "Důvod účtenky",
+          "receipt_note": "Poznámka k účtence",
+          "receipt_medicine": "Léky / recepty",
+          "select_reason": "Vyberte důvod...",
+          "date": "Datum",
+          "select_doctor_placeholder": "Vyberte lékaře..."
+        },
+        "banner": {
+          "found_basic": "Nalezeno: {{name}} – Celkem zaplaceno: €{{total}}",
+          "found_with_last": "Nalezeno: {{name}} – Celkem zaplaceno: €{{total}}, Poslední ošetření: {{doctor}}, {{date}}",
+          "new_patient": "Bude vytvořen nový pacient"
+        },
+        "validation": {
+          "patient_invalid": "Zadejte Příjmení nebo Příjmení Jméno",
+          "doctor_required": "Vyberte lékaře",
+          "amount_invalid": "Zadejte kladnou částku",
+          "lab_cost_required": "Zadejte poplatek za lab.",
+          "lab_note_required": "Zadejte poznámku k lab.",
+          "receipt_note_required": "Poznámka k účtence je povinná"
+        },
+        "toast": {
+          "recorded": "Příjem zaznamenán"
+        },
+        "receipt_reason_insurance": "Pojištění",
+        "receipt_reason_warranty": "Záruka",
+        "receipt_reason_customer_request": "Žádost zákazníka",
+        "receipt_reason_accounting": "Účetnictví",
+        "empty_state": "Žádné transakce pro vybrané období",
+        "table": {
+          "date": "Datum",
+          "patient": "Pacient",
+          "doctor": "Lékař",
+          "method": "Metoda",
+          "amount": "Částka",
+          "note": "Poznámka",
+          "status": "Stav",
+          "paid": "Zaplaceno",
+          "unpaid": "Nezaplaceno"
+        },
+        "errors": {
+          "load_records": "Nepodařilo se načíst záznamy o příjmech",
+          "invalid_patient": "Zadejte platné jméno pacienta",
+          "patient_not_found": "Vybraný pacient nebyl nalezen",
+          "invalid_doctor": "Vyberte platného lékaře",
+          "invalid_amount": "Částka musí být větší než nula",
+          "invalid_payment_method": "Vyberte způsob platby",
+          "lab_cost_required": "Poplatek za lab. je povinný",
+          "invalid_lab_cost": "Poplatek za lab. musí být kladné číslo",
+          "lab_note_required": "Poznámka k lab. je povinná",
+          "receipt_note_required": "Poznámka k účtence je povinná"
+        }
+      },
+      "outcome": {
+        "title": "Správa výdajů",
+        "history_title": "Historie výdajů",
+        "expenses": "Výdaje",
+        "salaries": "Mzdy",
+        "salary_panel": {
+          "breakdown": "Rozpis mzdy",
+          "period": "Období",
+          "total_hours": "Celkem hodin",
+          "base_rate": "Základní sazba",
+          "calculated_salary": "Vypočítaná mzda",
+          "last_payment": "Poslední platba",
+          "never": "Nikdy",
+          "base_salary": "Základní plat",
+          "commission": "Provize ({{rate}}% z {{income}})",
+          "lab_fees_deduction": "Srážka za lab. poplatky",
+          "adjustments": "Úpravy",
+          "total_estimated": "Celkem odhad",
+          "unpaid_patients": "Nezaplacení pacienti ({{count}})"
+        },
+        "salary_notes": {
+          "title": "Poznámky k platbě mzdy",
+          "total": "{{count}} celkem",
+          "loading": "Načítání poznámek...",
+          "empty": "Žádné poznámky k mzdě pro tohoto zaměstnance.",
+          "prev": "Předchozí",
+          "next": "Další"
+        },
+        "signature": {
+          "title": "Podpis mzdového výkazu",
+          "close": "Zavřít",
+          "signer_name": "Jméno podepisujícího",
+          "signer_placeholder": "Zadejte celé jméno",
+          "digital_signature": "Digitální podpis",
+          "clear": "Vymazat",
+          "record_and_sign": "Zaznamenat mzdu a podepsat",
+          "recording": "Zaznamenávání..."
+        },
+        "hints": {
+          "adjust_amount": "Tuto částku můžete upravit (zaokrouhlit nahoru/dolů) podle potřeby."
+        },
+        "warnings": {
+          "reset_counter": "Varování: Zpracování této platby vynuluje počítadlo tržeb zaměstnance."
+        },
+        "form": {
+          "add_expense": "Přidat výdaj",
+          "add_salary": "Přidat mzdu",
+          "category": "Kategorie",
+          "amount": "Částka",
+          "date": "Datum",
+          "vendor": "Dodavatel",
+          "description": "Popis",
+          "staff": "Zaměstnanec",
+          "note": "Poznámka",
+          "submit_expense": "Zaznamenat výdaj",
+          "submit_salary": "Zaznamenat mzdu"
+        },
+        "table": {
+          "category": "Kategorie",
+          "vendor": "Dodavatel",
+          "amount": "Částka",
+          "date": "Datum",
+          "staff": "Zaměstnanec"
+        },
+        "errors": {
+          "load_data": "Nepodařilo se načíst údaje o výdajích",
+          "load_reference": "Nepodařilo se načíst referenční údaje"
+        }
+      },
+      "staff": {
+        "title": "Adresář personálu",
+        "add_staff": "Přidat personál",
+        "edit_staff": "Upravit personál",
+        "active_members": "{{count}} aktivních členů",
+        "items_count": "{{count}} položek",
+        "medicines_title": "Léky / recepty",
+        "medicines_add": "Přidat lék",
+        "medicines_placeholder": "Zadejte název léku",
+        "actions": {
+          "pay": "Zaplatit",
+          "view": "Zobrazit",
+          "edit": "Upravit"
+        },
+        "table_meta": {
+          "base_commission": "Základ/Provize",
+          "total_earned": "Nezaplacená mzda",
+          "actions": "Akce"
+        },
+        "pay_modal": {
+          "title": "Vyplatit mzdu: {{name}}",
+          "base_salary": "Základní plat",
+          "commission": "Provize",
+          "adjustments": "Úpravy",
+          "total": "Celkem",
+          "processing": "Zpracování...",
+          "confirm": "Potvrdit platbu"
+        },
+        "form": {
+          "first_name": "Jméno",
+          "last_name": "Příjmení",
+          "commission_rate": "Sazba provize (%)",
+          "base_hourly_salary": "Základní/Hodinová mzda",
+          "phone": "Telefon",
+          "email": "Email"
+        },
+        "table": {
+          "name": "Jméno",
+          "role": "Role",
+          "email": "Email",
+          "status": "Stav"
+        },
+        "roles": {
+          "doctor": "Lékař",
+          "assistant": "Asistent",
+          "administrator": "Administrátor",
+          "janitor": "Uklízeč",
+          "nurse": "Sestra",
+          "admin": "Admin",
+          "receptionist": "Recepční"
+        },
+        "errors": {
+          "load_staff": "Nepodařilo se načíst adresář personálu",
+          "load_medicines": "Nepodařilo se načíst léky",
+          "add_medicine": "Nepodařilo se přidat lék",
+          "remove_medicine": "Nepodařilo se odebrat lék"
+        }
+      },
+      "staff_role": {
+        "title_fallback": "Člen personálu",
+        "system_error": "SYSTÉMOVÁ CHYBA: {{error}}",
+        "timesheet_log": "Protokol docházky",
+        "entries_count": "{{count}} záznamů",
+        "headers": {
+          "date": "Datum",
+          "start": "Začátek",
+          "end": "Konec",
+          "hours": "Hodiny",
+          "actions": "Akce"
+        },
+        "salary_summary": "Shrnutí mzdy",
+        "recording": "Zaznamenávání...",
+        "record_salary": "Zaznamenat mzdu",
+        "salary_documents": "Mzdové dokumenty",
+        "signed_reports": "Podepsané výkazy",
+        "search": "Hledat",
+        "headers_docs": {
+          "period": "Období",
+          "signed_at": "Podepsáno v",
+          "signer": "Podepsal",
+          "file": "Soubor",
+          "action": "Akce"
+        },
+        "no_documents": "Nebyly nalezeny žádné mzdové dokumenty",
+        "file_default": "mzdovy-vykaz.pdf",
+        "view": "Zobrazit",
+        "download": "Stáhnout",
+        "edit_shift": "Upravit směnu",
+        "add_shift": "Přidat směnu",
+        "shift_date": "Datum",
+        "shift_start": "Čas začátku",
+        "shift_end": "Čas konce",
+        "shift_note": "Poznámka",
+        "shift_placeholder": "Podrobnosti směny...",
+        "update_shift": "Aktualizovat směnu",
+        "saving": "Ukládání...",
+        "confirm_delete_shift": "Opravdu chcete tuto směnu smazat?",
+        "errors": {
+          "staff_not_found": "Člen personálu nebyl nalezen.",
+          "invalid_staff": "Vyberte platného člena personálu.",
+          "timesheets_unavailable": "Docházkové listy pro tohoto člena nejsou k dispozici.",
+          "load_timesheets": "Nepodařilo se načíst docházkové listy",
+          "load_documents": "Nepodařilo se načíst mzdové dokumenty",
+          "download_document": "Nepodařilo se stáhnout dokument",
+          "preview_document": "Nepodařilo se otevřít náhled dokumentu",
+          "invalid_range": "Vyberte platný rozsah dat.",
+          "no_hours": "Pro vybrané období nebyly zaznamenány žádné hodiny.",
+          "required_shift_fields": "Zadejte datum, čas začátku a čas konce.",
+          "invalid_time_range": "Čas konce musí být po čase začátku.",
+          "shift_not_found": "Směna nebyla nalezena.",
+          "invalid_shift_data": "Zadejte platné údaje o směně.",
+          "save_shift": "Nepodařilo se uložit směnu",
+          "delete_shift": "Nepodařilo se smazat směnu"
+        }
+      },
+      "schedule": {
+        "today": "Dnes",
+        "add_shift": "+ Přidat směnu",
+        "stats": {
+          "shifts": "Směny",
+          "visible_staff": "Viditelný personál",
+          "on_duty_now": "Právě ve službě",
+          "roles": "Role"
+        },
+        "calendar": "Kalendář",
+        "on_duty_today": "Dnes ve službě",
+        "no_on_duty_today": "Dnes nejsou ve službě žádní lékaři",
+        "duty_item": "Dr. {{lastName}} – {{role}} {{start}}-{{end}}",
+        "filters": {
+          "no_staff": "Žádný personál neodpovídá filtrům"
+        },
+        "modal": {
+          "edit_shift": "Upravit směnu",
+          "new_shift": "Nová směna",
+          "update_details": "AKTUALIZOVAT PODROBNOSTI",
+          "schedule_staff": "NAPLÁNOVAT PERSONÁL",
+          "staff_member": "Člen personálu",
+          "start_time": "Čas začátku",
+          "end_time": "Čas konce",
+          "notes": "Poznámky",
+          "note_placeholder": "Podrobnosti směny...",
+          "delete": "Smazat",
+          "cancel": "Zrušit",
+          "save_shift": "Uložit směnu →"
+        },
+        "errors": {
+          "save_shift": "Nepodařilo se uložit směnu: {{message}}",
+          "delete_shift": "Nepodařilo se smazat směnu: {{message}}",
+          "confirm_delete": "Opravdu chcete tuto směnu smazat?"
         }
       }
     }

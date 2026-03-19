@@ -1272,6 +1272,14 @@ def pay_salary():
     if not staff_id:
         return jsonify({"error": "invalid_staff"}), 400
         
+    signature_payload = data.get("signature")
+    if not signature_payload:
+        logger.warning("Bypass attempt: staff %s payment attempted without signature", staff_id)
+        return jsonify({
+            "error": "signature_required", 
+            "message": "Signing and report generation are mandatory for all staff payments."
+        }), 400
+
     requested_amount = data.get("amount", None)
     
     payment_date_raw = data.get("payment_date") or date.today().isoformat()
@@ -1291,7 +1299,7 @@ def pay_salary():
         # Verify staff exists
         cur.execute(
             """
-            SELECT s.id, s.base_salary, s.commission_rate, s.total_revenue, r.name
+            SELECT s.id, s.base_salary, s.commission_rate, s.total_revenue, r.name, s.first_name, s.last_name
             FROM staff s
             JOIN staff_roles r ON r.id = s.role_id
             WHERE s.id = %s
@@ -1305,6 +1313,7 @@ def pay_salary():
         base_salary = float(staff_row[1] or 0)
         commission_rate = float(staff_row[2] or 0)
         role_name = staff_row[4]
+        staff_full_name = " ".join(filter(None, [staff_row[5], staff_row[6]])).strip()
 
         from_param = data.get("from")
         to_param = data.get("to")
@@ -1426,9 +1435,47 @@ def pay_salary():
                 "to": to_param,
                 "role": role_name,
                 "payment_date": payment_date.isoformat(),
-                "has_signature_payload": bool(data.get("signature")),
+                "has_signature_payload": True,
             },
         )
+        
+        # Mandatory report generation
+        report = build_salary_report_data(staff_id, from_param, to_param)
+        if not report or "error" in report:
+            conn.rollback()
+            return jsonify({"error": "report_generation_failed", "message": "Failed to generate mandatory salary report."}), 500
+            
+        report = apply_report_amount_override(report, total_amount)
+        
+        try:
+            signature_info = build_signature_payload({**signature_payload, "signer_name": staff_full_name})
+            signature_info["signature_token"] = compute_signature_token(
+                staff_id,
+                report["period"],
+                signature_info["signature_hash"],
+                signature_info["signer_name"],
+                signature_info["signed_at"],
+            )
+            
+            pdf_data, filename, error = save_salary_report(staff_id, report, signature_info)
+            if error:
+                conn.rollback()
+                logger.error("Mandatory report storage failed for staff %s: %s", staff_id, error)
+                return jsonify({"error": "document_storage_failed", "message": "Failed to store mandatory signed report."}), 500
+            
+            # Get the ID of the document we just created
+            cur.execute(
+                "SELECT id FROM staff_documents WHERE staff_id = %s AND signature_token = %s ORDER BY id DESC LIMIT 1",
+                (staff_id, signature_info["signature_token"])
+            )
+            doc_row = cur.fetchone()
+            document_id = doc_row[0] if doc_row else None
+            
+        except Exception as exc:
+            conn.rollback()
+            logger.exception("Mandatory signing workflow failed for staff %s: %s", staff_id, exc)
+            return jsonify({"error": "signing_failed", "message": "Signature processing failed."}), 400
+
         if requested_amount is not None and not math.isclose(total_amount, calculated_amount, rel_tol=0.0, abs_tol=0.009):
             logger.info(
                 "Salary amount overridden for staff %s: calculated=%s final=%s by=%s",
@@ -1482,39 +1529,6 @@ def pay_salary():
                 (staff_id,)
             )
 
-        # Handle Report Generation if signature is provided
-        signature_payload = data.get("signature")
-        document_id = None
-        if signature_payload:
-            report = build_salary_report_data(staff_id, from_param, to_param)
-            if report and "error" not in report:
-                report = apply_report_amount_override(report, total_amount)
-                staff_full_name = " ".join(filter(None, [report["staff"]["first_name"], report["staff"]["last_name"]])).strip()
-                try:
-                    signature_info = build_signature_payload({**signature_payload, "signer_name": staff_full_name})
-                    signature_info["signature_token"] = compute_signature_token(
-                        staff_id,
-                        report["period"],
-                        signature_info["signature_hash"],
-                        signature_info["signer_name"],
-                        signature_info["signed_at"],
-                    )
-                    
-                    pdf_data, filename, error = save_salary_report(staff_id, report, signature_info)
-                    if error:
-                        logger.error("Failed to save report during salary payment for staff %s: %s", staff_id, error)
-                    else:
-                        # Get the ID of the document we just created
-                        cur.execute(
-                            "SELECT id FROM staff_documents WHERE staff_id = %s AND signature_token = %s ORDER BY id DESC LIMIT 1",
-                            (staff_id, signature_info["signature_token"])
-                        )
-                        doc_row = cur.fetchone()
-                        if doc_row:
-                            document_id = doc_row[0]
-                except Exception as exc:
-                    logger.exception("Failed to generate report during salary payment for staff %s: %s", staff_id, exc)
-        
         conn.commit()
         return jsonify({
             "id": payment_id,

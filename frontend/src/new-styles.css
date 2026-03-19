@@ -42,8 +42,12 @@ body.salary-signing-static,
 
 html.auth-overlay-lock,
 body.auth-overlay-lock {
-  overflow: hidden;
-  overscroll-behavior: none;
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  -webkit-overflow-scrolling: auto !important;
+  height: 100% !important;
+  width: 100% !important;
+  position: fixed !important;
 }
 
 #root.salary-signing-static .shell,

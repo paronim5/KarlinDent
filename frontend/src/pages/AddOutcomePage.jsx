@@ -421,22 +421,112 @@ export default function AddOutcomePage() {
 
   useEffect(() => {
     if (!amountDiscrepancyModal) return;
+
+    const scrollY = window.pageYOffset;
+    const originalStyle = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+      height: document.body.style.height,
+      overscrollBehavior: document.body.style.overscrollBehavior
+    };
+
+    document.documentElement.classList.add("auth-overlay-lock");
+    document.body.classList.add("auth-overlay-lock");
+    
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.style.height = '100%';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
         setAmountDiscrepancyModal(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+
+    const preventDefault = (e) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    document.addEventListener('touchmove', preventDefault, { passive: false });
+    document.addEventListener('wheel', preventDefault, { passive: false });
+
+    return () => {
+      document.documentElement.classList.remove("auth-overlay-lock");
+      document.body.classList.remove("auth-overlay-lock");
+
+      document.body.style.overflow = originalStyle.overflow;
+      document.body.style.position = originalStyle.position;
+      document.body.style.top = originalStyle.top;
+      document.body.style.width = originalStyle.width;
+      document.body.style.height = originalStyle.height;
+      document.body.style.overscrollBehavior = originalStyle.overscrollBehavior;
+
+      window.scrollTo(0, scrollY);
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener('touchmove', preventDefault);
+      document.removeEventListener('wheel', preventDefault);
+    };
   }, [amountDiscrepancyModal]);
 
   useEffect(() => {
     if (!signatureModalOpen) return;
+
+    const scrollY = window.pageYOffset;
+    const originalStyle = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+      height: document.body.style.height,
+      overscrollBehavior: document.body.style.overscrollBehavior
+    };
+
+    // Apply strict scroll locking for mobile/iOS
     document.documentElement.classList.add("auth-overlay-lock");
     document.body.classList.add("auth-overlay-lock");
+    
+    // Maintain scroll position and prevent "rubber-banding" on iOS
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.style.height = '100%';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
+    const preventDefault = (e) => {
+      // Allow multi-touch if we want to allow zoom, but user asked to suppress it
+      // Block all touchmove events from propagating to the background
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    // Non-passive listener is required to call preventDefault()
+    document.addEventListener('touchmove', preventDefault, { passive: false });
+    document.addEventListener('wheel', preventDefault, { passive: false });
+
     return () => {
       document.documentElement.classList.remove("auth-overlay-lock");
       document.body.classList.remove("auth-overlay-lock");
+
+      // Restore original styles
+      document.body.style.overflow = originalStyle.overflow;
+      document.body.style.position = originalStyle.position;
+      document.body.style.top = originalStyle.top;
+      document.body.style.width = originalStyle.width;
+      document.body.style.height = originalStyle.height;
+      document.body.style.overscrollBehavior = originalStyle.overscrollBehavior;
+
+      // Restore scroll position
+      window.scrollTo(0, scrollY);
+
+      document.removeEventListener('touchmove', preventDefault);
+      document.removeEventListener('wheel', preventDefault);
     };
   }, [signatureModalOpen]);
 
@@ -467,6 +557,8 @@ export default function AddOutcomePage() {
   };
 
   const handleSignatureStart = (event) => {
+    if (event.cancelable) event.preventDefault();
+    setIsDrawing(true);
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -474,10 +566,10 @@ export default function AddOutcomePage() {
     if (!point) return;
     ctx.beginPath();
     ctx.moveTo(point.x, point.y);
-    setIsDrawing(true);
   };
 
   const handleSignatureMove = (event) => {
+    if (event.cancelable) event.preventDefault();
     if (!isDrawing) return;
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
@@ -489,10 +581,9 @@ export default function AddOutcomePage() {
     setHasSignature(true);
   };
 
-  const handleSignatureEnd = () => {
-    if (isDrawing) {
-      setIsDrawing(false);
-    }
+  const handleSignatureEnd = (event) => {
+    if (event && event.cancelable) event.preventDefault();
+    setIsDrawing(false);
   };
 
   const clearSignature = () => {
@@ -874,7 +965,7 @@ export default function AddOutcomePage() {
                   <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '8px', background: 'var(--surface)' }}>
                     <canvas
                       ref={signatureCanvasRef}
-                      style={{ width: '100%', height: '140px', display: 'block', cursor: 'crosshair' }}
+                      style={{ width: '100%', height: '140px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
                       onMouseDown={handleSignatureStart}
                       onMouseMove={handleSignatureMove}
                       onMouseUp={handleSignatureEnd}

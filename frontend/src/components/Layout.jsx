@@ -197,6 +197,7 @@ export default function Layout({ children }) {
               className={`btn btn-ghost btn-sm ${i18n.language === 'en' ? 'active' : ''}`} 
               onClick={() => changeLanguage('en')}
               style={{ padding: "4px 8px", fontSize: "12px", background: i18n.language.startsWith('en') ? "var(--bg-card)" : "transparent" }}
+              aria-label="Switch to English"
             >
               EN
             </button>
@@ -204,8 +205,17 @@ export default function Layout({ children }) {
               className={`btn btn-ghost btn-sm ${i18n.language === 'ru' ? 'active' : ''}`} 
               onClick={() => changeLanguage('ru')}
               style={{ padding: "4px 8px", fontSize: "12px", background: i18n.language.startsWith('ru') ? "var(--bg-card)" : "transparent" }}
+              aria-label="Переключить на русский"
             >
               RU
+            </button>
+            <button 
+              className={`btn btn-ghost btn-sm ${i18n.language === 'cs' ? 'active' : ''}`} 
+              onClick={() => changeLanguage('cs')}
+              style={{ padding: "4px 8px", fontSize: "12px", background: i18n.language.startsWith('cs') ? "var(--bg-card)" : "transparent" }}
+              aria-label="Přepnout do češtiny"
+            >
+              CZ
             </button>
           </div>
           <div className="clinic-badge">

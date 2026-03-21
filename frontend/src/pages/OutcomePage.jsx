@@ -65,10 +65,7 @@ export default function OutcomePage() {
     }
   };
 
-  const computeRange = (selectedPeriod) => {
-    if (selectedPeriod === "custom") {
-        return { from: customRange.from, to: customRange.to };
-    }
+  const computeBaseRange = (selectedPeriod) => {
     const now = new Date(viewDate);
     const toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     let fromDate = new Date(toDate);
@@ -87,11 +84,24 @@ export default function OutcomePage() {
     const format = (d) => d.toISOString().slice(0, 10);
     return { from: format(fromDate), to: format(toDate) };
   };
+  
+  const computeRange = (selectedPeriod) => {
+    if (selectedPeriod === "custom") {
+        if (customRange.from && customRange.to) {
+          return { from: customRange.from, to: customRange.to };
+        }
+        return computeBaseRange("month");
+    }
+    return computeBaseRange(selectedPeriod);
+  };
 
   const loadPeriodData = async (rangeFrom = from, rangeTo = to) => {
-    if (!rangeFrom || !rangeTo) return;
+    const fallback = computeRange(period);
+    const effectiveFrom = rangeFrom || fallback.from;
+    const effectiveTo = rangeTo || fallback.to;
+    if (!effectiveFrom || !effectiveTo) return;
     try {
-      const outcomeRecords = await api.get(`/outcome/records?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`);
+      const outcomeRecords = await api.get(`/outcome/records?from=${encodeURIComponent(effectiveFrom)}&to=${encodeURIComponent(effectiveTo)}`);
       setRecords(outcomeRecords);
       setSalaries([]); 
       setSelectedOutcomeIds([]);
@@ -107,6 +117,9 @@ export default function OutcomePage() {
   
   useEffect(() => {
       const range = computeRange(period);
+      if (period === "custom" && (!customRange.from || !customRange.to)) {
+          setCustomRange({ from: range.from, to: range.to });
+      }
       if (range.from && range.to) {
           setFrom(range.from);
           setTo(range.to);

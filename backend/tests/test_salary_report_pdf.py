@@ -166,7 +166,7 @@ def test_pay_salary_with_signature_generates_report(monkeypatch, tmp_path):
         def execute(self, sql, params=None):
             pass
         def fetchone(self):
-            return (1, 100.0, 0.3, 0.0, "doctor")
+            return (1, 100.0, 0.3, 0.0, "doctor", "Test", "Doctor", None)
         def fetchall(self):
             return []
     class FakeConn:
@@ -196,7 +196,7 @@ def test_pay_salary_with_signature_generates_report(monkeypatch, tmp_path):
     }
     
     # Mock build_salary_report_data to return a valid report for a doctor
-    def fake_report_data(staff_id, from_param, to_param):
+    def fake_report_data(staff_id, from_param, to_param, conn=None):
         return {
             "staff": {"id": 2, "first_name": "Test", "last_name": "Doctor"},
             "role": "doctor",

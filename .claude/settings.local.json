@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker exec:*)",
+      "Bash(MSYS_NO_PATHCONV=1 docker exec karlindent-db-1 ls /tmp/)",
+      "Bash(docker restart:*)",
+      "Bash(MSYS_NO_PATHCONV=1 docker exec karlindent-db-1 psql -U policlinic -d policlinic -c \":*)"
+    ]
+  }
+}

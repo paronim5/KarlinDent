@@ -35,7 +35,7 @@ beforeEach(() => {
         { id: 2, first_name: "Viktoriia", last_name: "O", role: "assistant", base_salary: 250 }
       ]);
     }
-    if (path.startsWith("/outcome/timesheets")) {
+    if (path.startsWith("/schedule?")) {
       return Promise.resolve([]);
     }
     if (path.startsWith("/staff/2/documents?")) {
@@ -78,7 +78,7 @@ test("renders salary documents and supports view and download actions", async ()
 
   await waitFor(() => expect(screen.getByText("Viktoriia O Salary Report 2026-03-13.pdf")).toBeTruthy());
 
-  await userEvent.click(screen.getByRole("button", { name: "View" }));
+  await userEvent.click(screen.getByRole("button", { name: /View|staff_role.view/i }));
   await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
     "/api/staff/2/documents/9/view",
     expect.objectContaining({
@@ -86,7 +86,7 @@ test("renders salary documents and supports view and download actions", async ()
     })
   ));
 
-  await userEvent.click(screen.getByRole("button", { name: "Download" }));
+  await userEvent.click(screen.getByRole("button", { name: /Download|staff_role.download/i }));
   await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
     "/api/staff/2/documents/9/download",
     expect.objectContaining({
@@ -104,7 +104,7 @@ test("uses responsive document filter and action classes", async () => {
     </MemoryRouter>
   );
 
-  await waitFor(() => expect(screen.getByText("Salary Documents")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("staff_role.salary_documents")).toBeTruthy());
 
   expect(container.querySelector(".doc-filter-controls")).toBeTruthy();
   expect(container.querySelector(".doc-filter-input")).toBeTruthy();
@@ -118,9 +118,9 @@ test("renders existing shift row without crashing page", async () => {
         { id: 2, first_name: "Viktoriia", last_name: "O", role: "assistant", base_salary: 250 }
       ]);
     }
-    if (path.startsWith("/outcome/timesheets")) {
+    if (path.startsWith("/schedule?")) {
       return Promise.resolve([
-        { id: 11, work_date: "2026-03-14", start_time: "09:00:00", end_time: "17:00:00", hours: 8 }
+        { id: 11, staff_id: 2, start: "2026-03-14T09:00:00Z", end: "2026-03-14T17:00:00Z", note: "", status: "pending" }
       ]);
     }
     if (path.startsWith("/staff/2/documents?")) {

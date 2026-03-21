@@ -3,6 +3,8 @@ from datetime import date
 from backend.app import create_app
 from backend.db import get_connection, release_connection
 
+SIGNATURE_DATA = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABAABJzQnCgAAAABJRU5ErkJggg=="
+
 @pytest.fixture
 def client():
     app = create_app(testing=True)
@@ -11,6 +13,7 @@ def client():
             conn = get_connection()
             cur = conn.cursor()
             # Setup test data
+            cur.execute("DELETE FROM outcome_records")
             cur.execute("DELETE FROM salary_payments")
             cur.execute("DELETE FROM income_records")
             cur.execute("DELETE FROM staff")
@@ -54,7 +57,12 @@ def test_pay_salary_and_reset(client):
         "staff_id": 1,
         "amount": 2500.0,
         "payment_date": date.today().isoformat(),
-        "note": "Regular payment"
+        "note": "Regular payment",
+        "signature": {
+            "signer_name": "Test Doctor",
+            "signature_data": SIGNATURE_DATA,
+            "signed_at": date.today().isoformat()
+        }
     }
     resp = client.post("/api/staff/salaries", json=payload)
     assert resp.status_code == 201
@@ -78,7 +86,12 @@ def test_multiple_payments_allowed(client):
     payload = {
         "staff_id": 1,
         "amount": 2500.0,
-        "payment_date": date.today().isoformat()
+        "payment_date": date.today().isoformat(),
+        "signature": {
+            "signer_name": "Test Doctor",
+            "signature_data": SIGNATURE_DATA,
+            "signed_at": date.today().isoformat()
+        }
     }
     # First payment
     resp1 = client.post("/api/staff/salaries", json=payload)
@@ -88,6 +101,43 @@ def test_multiple_payments_allowed(client):
     resp2 = client.post("/api/staff/salaries", json=payload)
     assert resp2.status_code == 201
 
+
+def test_salary_payment_creates_outcome_record(client):
+    payload = {
+        "staff_id": 1,
+        "amount": 2500.0,
+        "payment_date": date.today().isoformat(),
+        "note": "Outcome check",
+        "signature": {
+            "signer_name": "Test Doctor",
+            "signature_data": SIGNATURE_DATA,
+            "signed_at": date.today().isoformat()
+        }
+    }
+    resp = client.post("/api/staff/salaries", json=payload)
+    assert resp.status_code == 201
+
+    with client.application.app_context():
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT o.amount, o.expense_date, o.description, c.name
+            FROM outcome_records o
+            JOIN outcome_categories c ON c.id = o.category_id
+            WHERE o.amount = %s
+            """,
+            (2500.0,),
+        )
+        row = cur.fetchone()
+        release_connection(conn)
+
+        assert row is not None
+        assert float(row[0]) == 2500.0
+        assert row[1] == date.today()
+        assert row[3] == "salary"
+        assert "Test Doctor" in (row[2] or "")
+
 def test_modified_salary_amount(client):
     """Test paying a modified amount (different from estimate)"""
     # Estimate is 2500, but we pay 3000 (bonus)
@@ -95,7 +145,12 @@ def test_modified_salary_amount(client):
         "staff_id": 1,
         "amount": 3000.0,
         "payment_date": date.today().isoformat(),
-        "note": "Bonus included"
+        "note": "Bonus included",
+        "signature": {
+            "signer_name": "Test Doctor",
+            "signature_data": SIGNATURE_DATA,
+            "signed_at": date.today().isoformat()
+        }
     }
     resp = client.post("/api/staff/salaries", json=payload)
     assert resp.status_code == 201
@@ -134,6 +189,27 @@ def test_timesheet_payroll_for_non_doctor(client):
     assert data["hours"] == 8.0
     assert data["amount"] == 1600.0
 
+    # Verify that it creates an outcome_record
+    with client.application.app_context():
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT o.amount, o.expense_date, o.description, c.name
+            FROM outcome_records o
+            JOIN outcome_categories c ON c.id = o.category_id
+            WHERE o.amount = %s
+            """,
+            (1600.0,),
+        )
+        row = cur.fetchone()
+        release_connection(conn)
+
+        assert row is not None
+        assert float(row[0]) == 1600.0
+        assert row[3] == "salary"
+        assert "Test Assistant" in (row[2] or "")
+
 
 def test_timesheet_payroll_rejects_doctor(client):
     payroll = {
@@ -155,3 +231,54 @@ def test_timesheet_payroll_no_hours(client):
     resp = client.post("/api/outcome/timesheets/payroll", json=payroll)
     assert resp.status_code == 400
     assert resp.json["error"] == "no_hours"
+
+
+def test_salary_payment_rolls_back_on_report_failure(client, monkeypatch):
+    from datetime import datetime, timedelta
+    from backend import staff as staff_module
+
+    def fake_save_salary_report(staff_id, report, signature_info, conn=None):
+        return None, None, "document_storage_failed"
+
+    monkeypatch.setattr(staff_module, "save_salary_report", fake_save_salary_report)
+
+    past_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    payload = {
+        "staff_id": 2,
+        "start_time": f"{past_date}T09:00:00Z",
+        "end_time": f"{past_date}T12:00:00Z",
+        "note": "Rollback test",
+        "force": True
+    }
+    resp = client.post("/api/schedule", json=payload, headers={"X-Staff-Id": "1", "X-Staff-Role": "admin"})
+    shift_id = resp.json["id"]
+    client.patch(f"/api/schedule/{shift_id}/status", json={"status": "accepted"}, headers={"X-Staff-Id": "1", "X-Staff-Role": "admin"})
+
+    pay_payload = {
+        "staff_id": 2,
+        "amount": 600.0,
+        "payment_date": date.today().isoformat(),
+        "from": past_date,
+        "to": past_date,
+        "signature": {
+            "signer_name": "Test Assistant",
+            "signature_data": SIGNATURE_DATA,
+            "signed_at": date.today().isoformat()
+        }
+    }
+    resp_pay = client.post("/api/staff/salaries", json=pay_payload, headers={"X-Staff-Id": "2", "X-Staff-Role": "assistant"})
+    assert resp_pay.status_code == 500
+    assert resp_pay.json["error"] == "document_storage_failed"
+
+    with client.application.app_context():
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM salary_payments WHERE staff_id = 2")
+        count = int(cur.fetchone()[0])
+        cur.execute("SELECT status, salary_payment_id FROM shifts WHERE id = %s", (shift_id,))
+        row = cur.fetchone()
+        release_connection(conn)
+
+        assert count == 0
+        assert row[0] == "accepted"
+        assert row[1] is None

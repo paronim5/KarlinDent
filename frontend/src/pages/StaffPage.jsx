@@ -38,7 +38,6 @@ export default function StaffPage() {
   const [medicineError, setMedicineError] = useState("");
   const [payModal, setPayModal] = useState(null);
   const [paying, setPaying] = useState(false);
-  const [wageEstimates, setWageEstimates] = useState({});
 
   const loadRoles = async () => {
     try {
@@ -70,34 +69,6 @@ export default function StaffPage() {
     loadStaff();
     loadMedicines();
   }, []);
-
-  useEffect(() => {
-    const compute = async () => {
-      if (!staff || staff.length === 0) return;
-      const today = new Date();
-      const from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-      const to = today.toISOString().slice(0, 10);
-      const updates = {};
-      const tasks = staff
-        .filter((m) => m.role !== "doctor")
-        .map(async (m) => {
-          try {
-            const ts = await api.get(`/outcome/timesheets?staff_id=${m.id}&from=${from}&to=${to}`);
-            const hours = ts.reduce((sum, item) => sum + (Number(item.hours) || 0), 0);
-            const base = Number(m.base_salary) || 0;
-            const total = Number((hours * base).toFixed(2));
-            if (total > 0) updates[m.id] = total;
-          } catch {
-            /* ignore */
-          }
-        });
-      await Promise.all(tasks);
-      if (Object.keys(updates).length > 0) {
-        setWageEstimates((prev) => ({ ...prev, ...updates }));
-      }
-    };
-    compute();
-  }, [staff]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -356,13 +327,7 @@ export default function StaffPage() {
                     {member.role === 'doctor' ? `${((member.commission_rate || 0) * 100).toFixed(1)}%` : (member.base_salary || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                   </td>
                   <td className="mono" style={{ color: "var(--green)" }} data-label={t("staff.table_meta.total_earned")}>
-                    {(() => {
-                      const isDoctor = member.role === 'doctor';
-                      const val = !isDoctor && wageEstimates[member.id] != null && wageEstimates[member.id] > 0
-                        ? wageEstimates[member.id]
-                        : (member.unpaid_amount || 0);
-                      return val.toLocaleString(undefined, { style: "currency", currency: "CZK" });
-                    })()}
+                    {(member.unpaid_amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                   </td>
                   <td data-label={t("staff.table_meta.actions")}>
                     <div style={{ display: "flex", gap: "8px" }}>

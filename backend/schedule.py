@@ -3,17 +3,88 @@ from typing import List, Optional, Dict, Any
 import json
 import io
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, Response
 import psycopg2
 
 from .db import get_connection, release_connection
-from .staff import get_role_id
 
 schedule_bp = Blueprint("schedule", __name__)
 
+_VERIFIED_SCHEMAS = set()
+_ALLOWED_STATUSES = {"pending", "accepted", "declined"}
+_HOLIDAY_MULTIPLIER = 1.5
+_DEFAULT_MULTIPLIER = 1.0
+_HOLIDAY_MM_DD = {
+    "01-01",
+    "05-01",
+    "05-08",
+    "07-05",
+    "07-06",
+    "09-28",
+    "10-28",
+    "11-17",
+    "12-24",
+    "12-25",
+    "12-26",
+}
+
 def parse_iso_datetime(dt_str: str) -> datetime:
-    # Handles ISO format like '2023-10-27T10:00:00.000Z' or '2023-10-27T10:00:00'
     return datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+
+def get_authenticated_staff() -> Optional[Dict[str, Any]]:
+    staff_id_value = request.headers.get("X-Staff-Id")
+    role = request.headers.get("X-Staff-Role") or ""
+    if not staff_id_value:
+        return None
+    try:
+        staff_id = int(staff_id_value)
+    except (TypeError, ValueError):
+        return None
+    return {"id": staff_id, "role": role}
+
+def ensure_admin_authorized() -> Optional[Response]:
+    auth = get_authenticated_staff()
+    if not auth:
+        return jsonify({"error": "unauthorized"}), 401
+    role = str(auth.get("role") or "").lower()
+    if role not in {"admin", "administrator"}:
+        return jsonify({"error": "forbidden"}), 403
+    return None
+
+def normalize_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status == "approved":
+        status = "accepted"
+    return status
+
+def validate_completion_percent(value: Any, default_value: float = 100.0) -> float:
+    if value is None:
+        return float(default_value)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("invalid_completion_percent")
+    if parsed < 0 or parsed > 100:
+        raise ValueError("invalid_completion_percent")
+    return round(parsed, 2)
+
+def validate_pay_multiplier(value: Any) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("invalid_pay_multiplier")
+    if parsed <= 0 or parsed > 10:
+        raise ValueError("invalid_pay_multiplier")
+    return round(parsed, 3)
+
+def is_holiday_date(dt_value: datetime) -> bool:
+    day = dt_value.date()
+    if day.weekday() >= 5:
+        return True
+    return day.strftime("%m-%d") in _HOLIDAY_MM_DD
+
+def compute_default_multiplier(start_time: datetime) -> float:
+    return _HOLIDAY_MULTIPLIER if is_holiday_date(start_time) else _DEFAULT_MULTIPLIER
 
 def check_conflicts(cur, staff_id: int, start_time: datetime, end_time: datetime, exclude_shift_id: Optional[int] = None) -> List[Dict[str, Any]]:
     query = """
@@ -23,6 +94,7 @@ def check_conflicts(cur, staff_id: int, start_time: datetime, end_time: datetime
         WHERE s.staff_id = %s
           AND s.start_time < %s
           AND s.end_time > %s
+          AND s.status != 'declined'
     """
     params = [staff_id, end_time, start_time]
     
@@ -44,11 +116,7 @@ def check_conflicts(cur, staff_id: int, start_time: datetime, end_time: datetime
     return conflicts
 
 def log_audit(cur, action: str, shift_id: Optional[int], details: Dict[str, Any], user_id: Optional[int] = None):
-    # If we had a real user session, we would use user_id. 
-    # For now, we might pass a mock admin ID or leave it null if unknown.
-    # We will assume user_id=1 (Admin) for this implementation if not provided.
-    admin_id = user_id or 1 
-    
+    admin_id = user_id
     cur.execute(
         """
         INSERT INTO schedule_audit_logs (shift_id, action, changed_by, details)
@@ -58,11 +126,11 @@ def log_audit(cur, action: str, shift_id: Optional[int], details: Dict[str, Any]
     )
 
 def send_notification(staff_id: int, message: str):
-    # In a real app, this would send an email or push notification
-    # For now, we simulate it by logging to stdout.
     print(f"[NOTIFICATION] To Staff ID {staff_id}: {message}")
 
 def ensure_schedule_schema(cur):
+    if "schedule_shifts_v2" in _VERIFIED_SCHEMAS:
+        return
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS shifts (
@@ -71,32 +139,64 @@ def ensure_schedule_schema(cur):
             start_time      TIMESTAMPTZ NOT NULL,
             end_time        TIMESTAMPTZ NOT NULL,
             note            TEXT,
+            status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+            approved_by     INT REFERENCES staff(id),
+            approved_at     TIMESTAMPTZ,
+            completion_percent NUMERIC(5, 2) NOT NULL DEFAULT 100,
+            pay_multiplier  NUMERIC(6, 3) NOT NULL DEFAULT 1.0,
+            salary_payment_id INT REFERENCES salary_payments(id),
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
     )
+    cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'")
+    cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS approved_by INT REFERENCES staff(id)")
+    cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ")
+    cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS completion_percent NUMERIC(5, 2) NOT NULL DEFAULT 100")
+    cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS pay_multiplier NUMERIC(6, 3) NOT NULL DEFAULT 1.0")
+    cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS salary_payment_id INT REFERENCES salary_payments(id)")
+    # cur.execute("UPDATE shifts SET status = 'accepted' WHERE status = 'approved'")
+    # cur.execute("UPDATE shifts SET status = 'pending' WHERE status IS NULL OR status NOT IN ('pending', 'accepted', 'declined', 'paid')")
+    cur.execute("UPDATE shifts SET completion_percent = 100 WHERE completion_percent IS NULL")
+    cur.execute("UPDATE shifts SET pay_multiplier = 1.0 WHERE pay_multiplier IS NULL OR pay_multiplier <= 0")
+
     cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_time ON shifts (start_time, end_time)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_staff ON shifts (staff_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_status ON shifts (status)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_payment ON shifts (salary_payment_id)")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS schedule_audit_logs (
-            id              SERIAL PRIMARY KEY,
-            shift_id        INT,
-            action          VARCHAR(20) NOT NULL,
-            changed_by      INT REFERENCES staff(id),
-            details         TEXT,
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            id          SERIAL PRIMARY KEY,
+            shift_id    INT REFERENCES shifts(id) ON DELETE SET NULL,
+            action      VARCHAR(40) NOT NULL,
+            changed_by  INT REFERENCES staff(id),
+            details     JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
     )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_schedule_audit_logs_shift ON schedule_audit_logs (shift_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_schedule_audit_shift ON schedule_audit_logs(shift_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_schedule_audit_action ON schedule_audit_logs(action)")
+    cur.connection.commit()
+    _VERIFIED_SCHEMAS.add("schedule_shifts_v2")
+
+def is_missing_column_error(exc: Exception, column_name: str) -> bool:
+    message = str(exc).lower()
+    return "does not exist" in message and column_name.lower() in message
+
+def auto_accept_past_shifts(cur) -> None:
+    # Disabled to allow manual acceptance of unpaid shifts
+    pass
 
 @schedule_bp.route("", methods=["GET"])
 def list_shifts():
     start_str = request.args.get("start")
     end_str = request.args.get("end")
     staff_id = request.args.get("staff_id")
+    status = normalize_status(request.args.get("status"))
+    unpaid_only = request.args.get("unpaid") == "true"
     
     if not start_str or not end_str:
         return jsonify({"error": "start and end dates are required"}), 400
@@ -111,51 +211,88 @@ def list_shifts():
     try:
         cur = conn.cursor()
         ensure_schedule_schema(cur)
-        query = """
+        auto_accept_past_shifts(cur)
+        cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'shifts' AND column_name = 'salary_payment_id'
+            )
+            """
+        )
+        has_salary_payment_column = bool(cur.fetchone()[0])
+        salary_payment_select = "s.salary_payment_id" if has_salary_payment_column else "NULL::int AS salary_payment_id"
+
+        query = f"""
             SELECT s.id, s.staff_id, s.start_time, s.end_time, s.note, 
-                   st.first_name, st.last_name, r.name as role_name, r.id as role_id
+                   st.first_name, st.last_name, r.name as role_name, r.id as role_id,
+                   s.status, s.approved_by, s.approved_at, {salary_payment_select},
+                   COALESCE(s.completion_percent, 100), COALESCE(s.pay_multiplier, 1.0)
             FROM shifts s
             JOIN staff st ON s.staff_id = st.id
             JOIN staff_roles r ON st.role_id = r.id
-            WHERE s.start_time >= %s AND s.end_time <= %s
+            WHERE s.start_time < %s AND s.end_time > %s
         """
-        params = [start_date, end_date]
+        params = [end_date, start_date]
         
         if staff_id:
             query += " AND s.staff_id = %s"
             params.append(int(staff_id))
             
+        if status:
+            if status == "on_duty":
+                now = datetime.now(start_date.tzinfo) if start_date.tzinfo else datetime.now()
+                query += " AND s.start_time <= %s AND s.end_time >= %s AND s.status IN ('pending', 'accepted')"
+                params.extend([now, now])
+            elif status in _ALLOWED_STATUSES:
+                query += " AND s.status = %s"
+                params.append(status)
+            else:
+                return jsonify({"error": "invalid_status"}), 400
+            
+        if unpaid_only and has_salary_payment_column:
+            query += " AND s.salary_payment_id IS NULL"
+            
         query += " ORDER BY s.start_time ASC"
         
-        cur.execute(query, params)
+        try:
+            cur.execute(query, params)
+        except psycopg2.errors.UndefinedColumn:
+            conn.rollback()
+            cur = conn.cursor()
+            _VERIFIED_SCHEMAS.discard("schedule_shifts_v2")
+            ensure_schedule_schema(cur)
+            cur.execute(query, params)
         rows = cur.fetchall()
         
         shifts = []
         for row in rows:
             try:
-                # Ensure we have data
                 if not row:
                     continue
                     
-                s_id, s_staff_id, s_start, s_end, s_note, st_first, st_last, r_name, r_id = row
-                
-                # Handle potentially None dates (should happen due to schema, but for safety)
-                start_iso = s_start.isoformat() if s_start else ""
-                end_iso = s_end.isoformat() if s_end else ""
-                
-                # Handle names
-                full_name = f"{st_first or ''} {st_last or ''}".strip()
+                s_id, s_staff_id, s_start, s_end, s_note, st_first, st_last, r_name, r_id, s_status, s_approved_by, s_approved_at, s_payment_id, completion_percent, pay_multiplier = row
+                duration_hours = max((s_end - s_start).total_seconds() / 3600.0, 0.0)
+                salary_hours = duration_hours * (float(completion_percent or 100) / 100.0)
                 
                 shifts.append({
                     "id": s_id,
                     "staff_id": s_staff_id,
-                    "start": start_iso,
-                    "end": end_iso,
-                    "title": full_name,
+                    "start": s_start.isoformat(),
+                    "end": s_end.isoformat(),
+                    "title": f"{st_first or ''} {st_last or ''}".strip(),
                     "note": s_note,
-                    "staff_name": full_name,
+                    "staff_name": f"{st_first or ''} {st_last or ''}".strip(),
                     "role": r_name,
                     "role_id": r_id,
+                    "status": s_status,
+                    "approved_by": s_approved_by,
+                    "approved_at": s_approved_at.isoformat() if s_approved_at else None,
+                    "salary_payment_id": s_payment_id,
+                    "completion_percent": float(completion_percent or 100.0),
+                    "pay_multiplier": float(pay_multiplier or 1.0),
+                    "salary_hours": round(salary_hours, 2),
                     "resourceId": s_staff_id
                 })
             except Exception as e:
@@ -171,6 +308,9 @@ def list_shifts():
 
 @schedule_bp.route("", methods=["POST"])
 def create_shift():
+    auth_error = ensure_admin_authorized()
+    if auth_error:
+        return auth_error
     data = request.get_json()
     if not data:
         return jsonify({"error": "no_data"}), 400
@@ -184,38 +324,48 @@ def create_shift():
         start_time = parse_iso_datetime(data["start_time"])
         end_time = parse_iso_datetime(data["end_time"])
         staff_id = int(data["staff_id"])
-        note = data.get("note", "")
+        note = str(data.get("note") or "").strip()
+        if len(note) > 500:
+            return jsonify({"error": "note_too_long"}), 400
+        completion_percent = validate_completion_percent(data.get("completion_percent"), 100.0)
+        if "pay_multiplier" in data:
+            pay_multiplier = validate_pay_multiplier(data.get("pay_multiplier"))
+        else:
+            pay_multiplier = compute_default_multiplier(start_time)
         
         if end_time <= start_time:
             return jsonify({"error": "end_time_must_be_after_start_time"}), 400
             
-    except ValueError:
-        return jsonify({"error": "invalid_data_format"}), 400
+    except ValueError as exc:
+        return jsonify({"error": str(exc) if str(exc) else "invalid_data_format"}), 400
 
     conn = get_connection()
     try:
         cur = conn.cursor()
         ensure_schedule_schema(cur)
+        auto_accept_past_shifts(cur)
+
+        cur.execute("SELECT id FROM staff WHERE id = %s", (staff_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "staff_not_found"}), 404
         
-        # Conflict detection
         conflicts = check_conflicts(cur, staff_id, start_time, end_time)
         if conflicts and not data.get("force", False):
             return jsonify({"error": "conflict_detected", "conflicts": conflicts}), 409
             
         cur.execute(
             """
-            INSERT INTO shifts (staff_id, start_time, end_time, note)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO shifts (staff_id, start_time, end_time, note, status, completion_percent, pay_multiplier)
+            VALUES (%s, %s, %s, %s, 'pending', %s, %s)
             RETURNING id
             """,
-            (staff_id, start_time, end_time, note)
+            (staff_id, start_time, end_time, note, completion_percent, pay_multiplier)
         )
         shift_id = cur.fetchone()[0]
         
-        # Audit Log
-        log_audit(cur, "CREATE", shift_id, data)
+        auth = get_authenticated_staff()
+        log_audit(cur, "CREATE", shift_id, data, user_id=auth["id"] if auth else None)
         
-        # Notify
         send_notification(staff_id, f"New shift assigned: {start_time} - {end_time}")
 
         conn.commit()
@@ -228,45 +378,94 @@ def create_shift():
 
 @schedule_bp.route("/<int:shift_id>", methods=["PUT"])
 def update_shift(shift_id):
-    data = request.get_json()
+    auth_error = ensure_admin_authorized()
+    if auth_error:
+        return auth_error
+    auth = get_authenticated_staff()
+    admin_id = int(auth["id"]) if auth else None
+    data = request.get_json() or {}
     conn = get_connection()
     try:
         cur = conn.cursor()
         ensure_schedule_schema(cur)
+        auto_accept_past_shifts(cur)
         
-        # Get existing shift
-        cur.execute("SELECT staff_id, start_time, end_time, note FROM shifts WHERE id = %s", (shift_id,))
+        cur.execute(
+            "SELECT staff_id, start_time, end_time, note, status, salary_payment_id, completion_percent, pay_multiplier FROM shifts WHERE id = %s",
+            (shift_id,),
+        )
         existing = cur.fetchone()
         if not existing:
             return jsonify({"error": "shift_not_found"}), 404
+        if existing[5] is not None:
+            return jsonify({"error": "paid_shift_locked"}), 409
             
         current_staff_id = existing[0]
         
-        # Update fields
         staff_id = int(data.get("staff_id", current_staff_id))
+        cur.execute("SELECT id FROM staff WHERE id = %s", (staff_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "staff_not_found"}), 404
         start_time = parse_iso_datetime(data["start_time"]) if "start_time" in data else existing[1]
         end_time = parse_iso_datetime(data["end_time"]) if "end_time" in data else existing[2]
-        note = data.get("note", existing[3])
+        note = str(data.get("note", existing[3] or "")).strip()
+        if len(note) > 500:
+            return jsonify({"error": "note_too_long"}), 400
+        status = normalize_status(data.get("status", existing[4]))
+        if status not in _ALLOWED_STATUSES:
+            return jsonify({"error": "invalid_status"}), 400
+        completion_percent = validate_completion_percent(data.get("completion_percent"), float(existing[6] or 100.0))
+        if "pay_multiplier" in data:
+            pay_multiplier = validate_pay_multiplier(data.get("pay_multiplier"))
+        elif "start_time" in data or "end_time" in data:
+            pay_multiplier = compute_default_multiplier(start_time)
+        else:
+            pay_multiplier = float(existing[7] or 1.0)
+        if end_time <= start_time:
+            return jsonify({"error": "end_time_must_be_after_start_time"}), 400
         
-        # Conflict detection if time or staff changed
         if staff_id != current_staff_id or "start_time" in data or "end_time" in data:
             conflicts = check_conflicts(cur, staff_id, start_time, end_time, exclude_shift_id=shift_id)
             if conflicts and not data.get("force", False):
                 return jsonify({"error": "conflict_detected", "conflicts": conflicts}), 409
+
+        if status == "accepted":
+            tz = end_time.tzinfo if end_time.tzinfo else datetime.now().astimezone().tzinfo
+            if end_time.date() > datetime.now(tz).date():
+                return jsonify({"error": "cannot_accept_future_shift"}), 400
         
         cur.execute(
             """
             UPDATE shifts 
-            SET staff_id = %s, start_time = %s, end_time = %s, note = %s, updated_at = NOW()
+            SET staff_id = %s,
+                start_time = %s,
+                end_time = %s,
+                note = %s,
+                status = %s,
+                approved_by = CASE WHEN %s = 'accepted' THEN %s ELSE approved_by END,
+                approved_at = CASE WHEN %s = 'accepted' THEN COALESCE(approved_at, NOW()) ELSE approved_at END,
+                completion_percent = %s,
+                pay_multiplier = %s,
+                updated_at = NOW()
             WHERE id = %s
             """,
-            (staff_id, start_time, end_time, note, shift_id)
+            (
+                staff_id,
+                start_time,
+                end_time,
+                note,
+                status,
+                status,
+                admin_id,
+                status,
+                completion_percent,
+                pay_multiplier,
+                shift_id,
+            ),
         )
         
-        # Audit Log
-        log_audit(cur, "UPDATE", shift_id, {"old": existing, "new": data})
+        log_audit(cur, "UPDATE", shift_id, {"old": existing, "new": data}, user_id=admin_id)
         
-        # Notify
         send_notification(staff_id, f"Shift updated: {start_time} - {end_time}")
         if staff_id != current_staff_id:
              send_notification(current_staff_id, f"Shift removed: {existing[1]} - {existing[2]}")
@@ -279,28 +478,162 @@ def update_shift(shift_id):
     finally:
         release_connection(conn)
 
-@schedule_bp.route("/<int:shift_id>", methods=["DELETE"])
-def delete_shift(shift_id):
+@schedule_bp.route("/<int:shift_id>/status", methods=["PATCH"])
+def update_shift_status(shift_id):
+    auth_error = ensure_admin_authorized()
+    if auth_error:
+        return auth_error
+    data = request.get_json()
+    if not data or "status" not in data:
+        return jsonify({"error": "missing_status"}), 400
+        
+    new_status = normalize_status(data["status"])
+    if new_status not in _ALLOWED_STATUSES:
+        return jsonify({"error": "invalid_status"}), 400
+        
     conn = get_connection()
     try:
         cur = conn.cursor()
         ensure_schedule_schema(cur)
+        auto_accept_past_shifts(cur)
+        auth = get_authenticated_staff()
+        admin_id = int(auth["id"]) if auth else None
         
-        cur.execute("SELECT * FROM shifts WHERE id = %s", (shift_id,))
+        cur.execute("SELECT staff_id, start_time, end_time, status, salary_payment_id FROM shifts WHERE id = %s", (shift_id,))
         existing = cur.fetchone()
         if not existing:
             return jsonify({"error": "shift_not_found"}), 404
+        if existing[4] is not None:
+            return jsonify({"error": "paid_shift_locked"}), 409
+            
+        staff_id, start_time, end_time, current_status, _ = existing
+        
+        if new_status == "accepted":
+            tz = end_time.tzinfo if end_time.tzinfo else datetime.now().astimezone().tzinfo
+            if end_time.date() > datetime.now(tz).date():
+                return jsonify({"error": "cannot_accept_future_shift"}), 400
+            
+        cur.execute(
+            """
+            UPDATE shifts 
+            SET status = %s,
+                approved_by = CASE WHEN %s = 'accepted' THEN %s ELSE approved_by END,
+                approved_at = CASE WHEN %s = 'accepted' THEN COALESCE(approved_at, NOW()) ELSE approved_at END,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (new_status, new_status, admin_id, new_status, shift_id)
+        )
+        
+        log_audit(cur, f"STATUS_{new_status.upper()}", shift_id, {"old_status": current_status, "new_status": new_status}, user_id=admin_id)
+        
+        send_notification(staff_id, f"Shift {new_status}: {start_time} - {end_time}")
+
+        conn.commit()
+        return jsonify({"status": "updated", "new_status": new_status}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_connection(conn)
+
+@schedule_bp.route("/<int:shift_id>", methods=["DELETE"])
+def delete_shift(shift_id):
+    auth_error = ensure_admin_authorized()
+    if auth_error:
+        return auth_error
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        ensure_schedule_schema(cur)
+        auto_accept_past_shifts(cur)
+        
+        cur.execute("SELECT staff_id, start_time, end_time, salary_payment_id FROM shifts WHERE id = %s", (shift_id,))
+        existing = cur.fetchone()
+        if not existing:
+            return jsonify({"error": "shift_not_found"}), 404
+        if existing[3] is not None:
+            return jsonify({"error": "paid_shift_locked"}), 409
             
         cur.execute("DELETE FROM shifts WHERE id = %s", (shift_id,))
         
-        # Audit Log
-        log_audit(cur, "DELETE", shift_id, {"deleted_record": existing})
+        auth = get_authenticated_staff()
+        log_audit(cur, "DELETE", shift_id, {"deleted_record": existing}, user_id=auth["id"] if auth else None)
         
-        # Notify
-        send_notification(existing[1], f"Shift cancelled: {existing[2]} - {existing[3]}")
+        send_notification(existing[0], f"Shift cancelled: {existing[1]} - {existing[2]}")
 
         conn.commit()
         return jsonify({"status": "deleted"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_connection(conn)
+
+@schedule_bp.route("/bulk-status", methods=["POST"])
+def bulk_update_shift_status():
+    auth_error = ensure_admin_authorized()
+    if auth_error:
+        return auth_error
+    data = request.get_json()
+    if not data or "shift_ids" not in data or "status" not in data:
+        return jsonify({"error": "missing_data"}), 400
+        
+    shift_ids = data["shift_ids"]
+    new_status = normalize_status(data["status"])
+    if new_status not in _ALLOWED_STATUSES:
+        return jsonify({"error": "invalid_status"}), 400
+        
+    if not isinstance(shift_ids, list):
+        return jsonify({"error": "shift_ids_must_be_list"}), 400
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        ensure_schedule_schema(cur)
+        auto_accept_past_shifts(cur)
+        auth = get_authenticated_staff()
+        admin_id = int(auth["id"]) if auth else None
+        
+        now = datetime.now()
+        
+        results = {"updated": [], "failed": []}
+        
+        for s_id in shift_ids:
+            cur.execute("SELECT staff_id, end_time, status, salary_payment_id FROM shifts WHERE id = %s", (s_id,))
+            row = cur.fetchone()
+            if not row:
+                results["failed"].append({"id": s_id, "error": "not_found"})
+                continue
+                
+            staff_id, end_time, current_status, salary_payment_id = row
+            if salary_payment_id is not None:
+                results["failed"].append({"id": s_id, "error": "paid_shift_locked"})
+                continue
+            
+            if new_status == "accepted":
+                tz = end_time.tzinfo if end_time.tzinfo else now.astimezone().tzinfo
+                if end_time.date() > now.replace(tzinfo=tz).date():
+                    results["failed"].append({"id": s_id, "error": "future_shift"})
+                    continue
+                
+            cur.execute(
+                """
+                UPDATE shifts 
+                SET status = %s,
+                    approved_by = CASE WHEN %s = 'accepted' THEN %s ELSE approved_by END,
+                    approved_at = CASE WHEN %s = 'accepted' THEN COALESCE(approved_at, NOW()) ELSE approved_at END,
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (new_status, new_status, admin_id, new_status, s_id)
+            )
+            
+            log_audit(cur, f"STATUS_{new_status.upper()}", s_id, {"old_status": current_status, "new_status": new_status}, user_id=admin_id)
+            results["updated"].append(s_id)
+            
+        conn.commit()
+        return jsonify(results), 200
     except Exception as e:
         conn.rollback()
         return jsonify({"error": str(e)}), 500

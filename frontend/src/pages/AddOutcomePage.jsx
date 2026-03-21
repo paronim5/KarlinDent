@@ -101,11 +101,9 @@ export default function AddOutcomePage() {
       const from = firstOfMonth.toISOString().slice(0, 10);
       setSalaryRange({ from, to });
     }
-    if (toParam) {
-      setSalaryForm((p) => ({ ...p, paymentDate: toParam }));
-    } else {
-      const today = new Date().toISOString().slice(0, 10);
-      setSalaryForm((p) => ({ ...p, paymentDate: today }));
+    {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      setSalaryForm((p) => ({ ...p, paymentDate: todayStr }));
     }
   }, []);
 
@@ -228,11 +226,13 @@ export default function AddOutcomePage() {
     const fetchTimesheets = async () => {
       try {
         const ts = await api.get(
-          `/outcome/timesheets?staff_id=${selectedStaffId}&from=${encodeURIComponent(
-            salaryRange.from
-          )}&to=${encodeURIComponent(salaryRange.to)}`
+          `/schedule?staff_id=${selectedStaffId}&start=${encodeURIComponent(
+            salaryRange.from + 'T00:00:00Z'
+          )}&end=${encodeURIComponent(salaryRange.to + 'T23:59:59Z')}&status=accepted&unpaid=true`
         );
-        const totalHours = ts.reduce((sum, item) => sum + toNumber(item.hours, 0), 0);
+        const totalHours = ts.reduce((sum, item) => {
+          return sum + Number(item.salary_hours ?? item.hours ?? 0);
+        }, 0);
         const baseRate = toNumber(staffMember.base_salary, 0);
         const amount = Number((totalHours * baseRate).toFixed(2));
         setTimesheetSummary({ totalHours, baseRate, amount });
@@ -242,12 +242,12 @@ export default function AddOutcomePage() {
             setError("");
           } else {
             setSalaryForm((p) => ({ ...p, amount: "" }));
-            setError("No hours recorded for selected period.");
+            setError("No accepted shifts for selected period.");
           }
         }
       } catch (err) {
         setTimesheetSummary(null);
-        setError(err.message || "Unable to load timesheets");
+        setError(err.message || "Unable to load shifts");
       }
     };
 

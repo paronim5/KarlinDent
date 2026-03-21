@@ -21,6 +21,8 @@ from .db import get_connection, release_connection
 staff_bp = Blueprint("staff", __name__)
 logger = logging.getLogger(__name__)
 
+# Global cache for schema checks to improve performance
+_VERIFIED_SCHEMAS = set()
 
 def validate_salary(value: Any) -> float:
     try:
@@ -70,6 +72,8 @@ def get_documents_base_dir() -> str:
 
 
 def ensure_staff_documents_table(conn) -> None:
+    if "staff_documents" in _VERIFIED_SCHEMAS:
+        return
     cur = conn.cursor()
     cur.execute(
         """
@@ -92,9 +96,12 @@ def ensure_staff_documents_table(conn) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_documents_type ON staff_documents(document_type)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_documents_period ON staff_documents(period_from, period_to)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_documents_signed_at ON staff_documents(signed_at)")
+    _VERIFIED_SCHEMAS.add("staff_documents")
 
 
 def ensure_salary_amount_audit_table(conn) -> None:
+    if "salary_amount_audit" in _VERIFIED_SCHEMAS:
+        return
     cur = conn.cursor()
     cur.execute(
         """
@@ -116,6 +123,60 @@ def ensure_salary_amount_audit_table(conn) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_salary_amount_audit_staff ON salary_amount_audit(staff_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_salary_amount_audit_payment ON salary_amount_audit(salary_payment_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_salary_amount_audit_created ON salary_amount_audit(created_at DESC)")
+    _VERIFIED_SCHEMAS.add("salary_amount_audit")
+
+
+def ensure_shifts_salary_payment_column(conn) -> None:
+    if "shifts_salary_payment_column" in _VERIFIED_SCHEMAS:
+        return
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'shifts' AND column_name = 'salary_payment_id'
+        """
+    )
+    if cur.fetchone():
+        _VERIFIED_SCHEMAS.add("shifts_salary_payment_column")
+        return
+    try:
+        cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'")
+        cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS approved_by INT REFERENCES staff(id)")
+        cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ")
+        cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS completion_percent NUMERIC(5, 2) NOT NULL DEFAULT 100")
+        cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS pay_multiplier NUMERIC(6, 3) NOT NULL DEFAULT 1.0")
+        cur.execute("ALTER TABLE shifts ADD COLUMN IF NOT EXISTS salary_payment_id INT REFERENCES salary_payments(id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_payment ON shifts (salary_payment_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_status ON shifts (status)")
+    except psycopg2.errors.UndefinedTable:
+        conn.rollback()
+        return
+
+
+def ensure_salary_outcome_category(conn) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM outcome_categories WHERE name = %s", ("salary",))
+    row = cur.fetchone()
+    if row:
+        return int(row[0])
+    cur.execute(
+        """
+        INSERT INTO outcome_categories (name)
+        VALUES (%s)
+        ON CONFLICT (name) DO NOTHING
+        RETURNING id
+        """,
+        ("salary",),
+    )
+    row = cur.fetchone()
+    if row:
+        return int(row[0])
+    cur.execute("SELECT id FROM outcome_categories WHERE name = %s", ("salary",))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError("salary_outcome_category_missing")
+    return int(row[0])
 
 
 def record_salary_amount_audit(
@@ -290,8 +351,11 @@ def resolve_report_period(role_name: str, last_paid_at: Optional[date], from_par
     return {"start": start_date, "end": end_date}
 
 
-def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param: Optional[str]) -> Optional[Dict[str, Any]]:
-    conn = get_connection()
+def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param: Optional[str], conn=None) -> Optional[Dict[str, Any]]:
+    owns_conn = False
+    if conn is None:
+        conn = get_connection()
+        owns_conn = True
     try:
         cur = conn.cursor()
         cur.execute(
@@ -307,7 +371,8 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
         if not staff_row:
             return None
     finally:
-        release_connection(conn)
+        if owns_conn:
+            release_connection(conn)
 
     role_name = staff_row[7]
     base_salary = float(staff_row[3] or 0)
@@ -335,7 +400,6 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
     }
 
     if role_name == "doctor":
-        conn = get_connection()
         try:
             cur = conn.cursor()
             includes_lab_cost = False
@@ -343,7 +407,8 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
                 cur.execute("SELECT lab_cost FROM income_records LIMIT 0")
                 includes_lab_cost = True
             except psycopg2.errors.UndefinedColumn:
-                conn.rollback()
+                if owns_conn:
+                    conn.rollback()
                 cur = conn.cursor()
 
             cur.execute(
@@ -410,8 +475,11 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
                 (staff_id,),
             )
             adjustments = float(cur.fetchone()[0] or 0)
+        except Exception:
+            raise
         finally:
-            release_connection(conn)
+            if owns_conn:
+                release_connection(conn)
 
         report["last_payment_date"] = last_payment_date
         report["patients"] = [
@@ -437,44 +505,81 @@ def build_salary_report_data(staff_id: int, from_param: Optional[str], to_param:
             "adjusted_total_salary": adjusted_total_salary,
         }
     else:
-        conn = get_connection()
         try:
             cur = conn.cursor()
             try:
+                ensure_shifts_salary_payment_column(conn)
+                period_start = datetime.combine(start_date, time.min)
+                period_end = datetime.combine(end_date + timedelta(days=1), time.min)
                 cur.execute(
                     """
-                    SELECT work_date, start_time, end_time, hours, note
-                    FROM staff_timesheets
-                    WHERE staff_id = %s AND work_date BETWEEN %s AND %s
-                    ORDER BY work_date DESC, start_time ASC
+                    SELECT start_time, end_time, note, COALESCE(completion_percent, 100), COALESCE(pay_multiplier, 1.0)
+                    FROM shifts
+                    WHERE staff_id = %s 
+                      AND start_time >= %s AND end_time < %s
+                      AND status = 'accepted'
+                      AND salary_payment_id IS NULL
+                    ORDER BY start_time ASC
                     """,
-                    (staff_id, start_date, end_date),
+                    (staff_id, period_start, period_end),
                 )
-                timesheet_rows = cur.fetchall()
-            except psycopg2.errors.UndefinedTable:
-                conn.rollback()
-                timesheet_rows = []
+                shift_rows = cur.fetchall()
+            except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+                if owns_conn:
+                    conn.rollback()
+                cur = conn.cursor()
+                try:
+                    cur.execute(
+                        """
+                        SELECT start_time, end_time, note, 100::numeric, 1.0::numeric
+                        FROM shifts
+                        WHERE staff_id = %s 
+                          AND start_time >= %s AND end_time < %s
+                          AND status IN ('accepted', 'approved')
+                          AND salary_payment_id IS NULL
+                        ORDER BY start_time ASC
+                        """,
+                        (staff_id, period_start, period_end),
+                    )
+                    shift_rows = cur.fetchall()
+                except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+                    if owns_conn:
+                        conn.rollback()
+                    shift_rows = []
+        except Exception:
+            raise
         finally:
-            release_connection(conn)
+            if owns_conn:
+                release_connection(conn)
 
-        total_hours = sum(float(row[3] or 0) for row in timesheet_rows)
-        working_days = len({row[0] for row in timesheet_rows})
+        total_hours = 0.0
+        timesheets = []
+        for row in shift_rows:
+            s_time, e_time, note, completion_percent, pay_multiplier = row
+            duration = max((e_time - s_time).total_seconds() / 3600.0, 0.0)
+            payable_hours = duration * (float(completion_percent or 100) / 100.0)
+            weighted_hours = payable_hours
+            total_hours += weighted_hours
+            timesheets.append({
+                "date": s_time.date().isoformat(),
+                "start_time": s_time.strftime("%H:%M"),
+                "end_time": e_time.strftime("%H:%M"),
+                "hours": round(duration, 2),
+                "payable_hours": round(payable_hours, 2),
+                "pay_multiplier": round(float(pay_multiplier or 1.0), 3),
+                "weighted_hours": round(weighted_hours, 2),
+                "note": note or "",
+                "status": "accepted"
+            })
+
+        working_days = len({row[0].date() for row in shift_rows})
         report["summary"] = {
             "working_days": working_days,
             "total_hours": round(total_hours, 2),
             "base_salary": round(base_salary, 2),
             "total_salary": round(total_hours * base_salary, 2),
         }
-        report["timesheets"] = [
-            {
-                "date": row[0].isoformat(),
-                "start_time": row[1].strftime("%H:%M") if row[1] else "",
-                "end_time": row[2].strftime("%H:%M") if row[2] else "",
-                "hours": float(row[3] or 0),
-                "note": row[4] or "",
-            }
-            for row in timesheet_rows
-        ]
+        report["timesheets"] = timesheets
 
     return report
 
@@ -509,7 +614,7 @@ def compute_doctor_commission_metrics(total_income: float, total_lab_fees: float
     }
 
 
-def save_salary_report(staff_id: int, report: Dict[str, Any], signature_info: Dict[str, Any]) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
+def save_salary_report(staff_id: int, report: Dict[str, Any], signature_info: Dict[str, Any], conn=None) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
     """Generates, stores, and records a signed salary report PDF.
     Returns (pdf_data, filename, error_message)."""
     try:
@@ -530,7 +635,10 @@ def save_salary_report(staff_id: int, report: Dict[str, Any], signature_info: Di
         logger.exception("Failed to write salary report file for staff %s: %s", staff_id, exc)
         return None, None, "document_storage_failed"
 
-    conn = get_connection()
+    owns_conn = False
+    if conn is None:
+        conn = get_connection()
+        owns_conn = True
     try:
         cur = conn.cursor()
         ensure_staff_documents_table(conn)
@@ -553,13 +661,21 @@ def save_salary_report(staff_id: int, report: Dict[str, Any], signature_info: Di
                 file_path,
             ),
         )
-        conn.commit()
+        if owns_conn:
+            conn.commit()
     except Exception as exc:
-        conn.rollback()
+        if owns_conn:
+            conn.rollback()
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                logger.exception("Failed to cleanup salary report file for staff %s", staff_id)
         logger.exception("Failed to record salary document metadata: %s", exc)
         return None, None, "document_storage_failed"
     finally:
-        release_connection(conn)
+        if owns_conn:
+            release_connection(conn)
     return pdf_data, filename, None
 
 
@@ -619,50 +735,51 @@ def build_salary_report_pdf(report: Dict[str, Any], signature_info: Optional[Dic
         except Exception:
             return value
         try:
-            if isinstance(value, (str, os.PathLike)):
+            if isinstance(value, (str, os.PathLike)) or hasattr(value, "read"):
+                if hasattr(value, "seek"):
+                    try:
+                        value.seek(0)
+                    except Exception:
+                        pass
+                
                 with PILImage.open(value) as img:
                     img = img.convert("RGBA")
-                    px = img.load()
-                    width, height = img.size
-                    for y in range(height):
-                        for x in range(width):
-                            r, g, b, a = px[x, y]
-                            if a <= 8:
-                                continue
-                            brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
-                            if brightness > 245:
-                                px[x, y] = (0, 0, 0, max(a, 220))
-                            else:
-                                px[x, y] = (0, 0, 0, a)
+                    
+                    # 1. Performance: Downscale large canvas images (e.g. Retina displays)
+                    # A signature block in the PDF is only ~90mm wide (~250px at 72dpi).
+                    # 800px is more than enough for high quality.
+                    if img.width > 800:
+                        ratio = 800.0 / img.width
+                        new_size = (800, int(img.height * ratio))
+                        img = img.resize(new_size, PILImage.Resampling.LANCZOS)
+
+                    # 2. Optimization: Use band manipulation instead of pixel loops
+                    # The goal is to turn all visible pixels to black while preserving transparency.
+                    # Original logic increased alpha for white-ish pixels.
+                    r, g, b, a = img.split()
+                    
+                    # Convert to grayscale to check brightness
+                    gray = img.convert("L")
+                    # mask where brightness > 245
+                    white_mask = gray.point(lambda x: 255 if x > 245 else 0, mode="1")
+                    
+                    # Create new alpha band
+                    # If white_mask is 1 (255), we want max(a, 220)
+                    # We can use PIL.Image.composite or just point manipulation
+                    high_alpha = a.point(lambda x: max(x, 220))
+                    new_alpha = PILImage.composite(high_alpha, a, white_mask)
+                    
+                    # Pure black color channels
+                    black_band = PILImage.new("L", img.size, 0)
+                    
+                    res_img = PILImage.merge("RGBA", (black_band, black_band, black_band, new_alpha))
+                    
                     output = io.BytesIO()
-                    img.save(output, format="PNG")
-                    output.seek(0)
-                    return output
-            if hasattr(value, "read"):
-                try:
-                    value.seek(0)
-                except Exception:
-                    pass
-                with PILImage.open(value) as img:
-                    img = img.convert("RGBA")
-                    px = img.load()
-                    width, height = img.size
-                    for y in range(height):
-                        for x in range(width):
-                            r, g, b, a = px[x, y]
-                            if a <= 8:
-                                continue
-                            brightness = (0.299 * r) + (0.587 * g) + (0.114 * b)
-                            if brightness > 245:
-                                px[x, y] = (0, 0, 0, max(a, 220))
-                            else:
-                                px[x, y] = (0, 0, 0, a)
-                    output = io.BytesIO()
-                    img.save(output, format="PNG")
+                    res_img.save(output, format="PNG")
                     output.seek(0)
                     return output
         except Exception as exc:
-            logger.warning("Signature image skipped: %s", exc)
+            logger.warning("Signature optimization failed: %s", exc)
             return None
         return value
 
@@ -1060,7 +1177,7 @@ def list_medicines():
                 ORDER BY name
                 """
             )
-        except psycopg2.errors.UndefinedTable:
+        except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
             conn.rollback()
             return jsonify([])
         rows = cur.fetchall()
@@ -1092,7 +1209,7 @@ def create_medicine():
                 """,
                 (name,),
             )
-        except psycopg2.errors.UndefinedTable:
+        except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
             conn.rollback()
             return jsonify({"error": "medicine_table_missing"}), 400
         row = cur.fetchone()
@@ -1113,7 +1230,7 @@ def delete_medicine(medicine_id: int):
         cur = conn.cursor()
         try:
             cur.execute("DELETE FROM medicine_presets WHERE id = %s", (medicine_id,))
-        except psycopg2.errors.UndefinedTable:
+        except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
             conn.rollback()
             return jsonify({"error": "medicine_table_missing"}), 400
         if cur.rowcount == 0:
@@ -1230,6 +1347,33 @@ def get_salary_estimate(staff_id: int):
             commission_part = 0.0
             unpaid_patients = []
             commission_metrics = compute_doctor_commission_metrics(0.0, 0.0, commission_rate)
+            period_start = datetime.combine(start_date, time.min)
+            period_end = datetime.combine(end_date + timedelta(days=1), time.min)
+            try:
+                cur.execute(
+                    """
+                    SELECT COALESCE(
+                        SUM(
+                            (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                            * (COALESCE(completion_percent, 100) / 100.0)
+                        ),
+                        0
+                    )
+                    FROM shifts
+                    WHERE staff_id = %s
+                      AND start_time >= %s
+                      AND end_time < %s
+                      AND status IN ('accepted', 'approved')
+                      AND salary_payment_id IS NULL
+                    """,
+                    (staff_id, period_start, period_end),
+                )
+            except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+                conn.rollback()
+                shift_weighted_hours = 0.0
+            else:
+                shift_weighted_hours = float(cur.fetchone()[0] or 0)
+            commission_part = round(shift_weighted_hours * base_salary, 2)
 
         cur.execute(
             """
@@ -1241,7 +1385,7 @@ def get_salary_estimate(staff_id: int):
         )
         adjustments = float(cur.fetchone()[0] or 0)
 
-        estimated_total = base_salary + commission_part + adjustments
+        estimated_total = commission_part + adjustments if role != "doctor" else base_salary + commission_part + adjustments
 
         return jsonify({
             "base_salary": round(base_salary, 2),
@@ -1299,7 +1443,7 @@ def pay_salary():
         # Verify staff exists
         cur.execute(
             """
-            SELECT s.id, s.base_salary, s.commission_rate, s.total_revenue, r.name, s.first_name, s.last_name
+            SELECT s.id, s.base_salary, s.commission_rate, s.total_revenue, r.name, s.first_name, s.last_name, s.last_paid_at
             FROM staff s
             JOIN staff_roles r ON r.id = s.role_id
             WHERE s.id = %s
@@ -1314,19 +1458,18 @@ def pay_salary():
         commission_rate = float(staff_row[2] or 0)
         role_name = staff_row[4]
         staff_full_name = " ".join(filter(None, [staff_row[5], staff_row[6]])).strip()
+        last_paid_at = staff_row[7]
 
         from_param = data.get("from")
         to_param = data.get("to")
-        has_explicit_period = bool(from_param or to_param)
-        if has_explicit_period:
-            try:
-                period = resolve_report_period(role_name, None, from_param, to_param)
-            except ValueError:
-                return jsonify({"error": "invalid_date_format"}), 400
-            if not period:
-                return jsonify({"error": "invalid_date_range"}), 400
-            start_date = period["start"]
-            end_date = period["end"]
+        try:
+            period = resolve_report_period(role_name, last_paid_at, from_param, to_param)
+        except ValueError:
+            return jsonify({"error": "invalid_date_format"}), 400
+        if not period:
+            return jsonify({"error": "invalid_date_range"}), 400
+        start_date = period["start"]
+        end_date = period["end"]
 
         includes_lab_cost = False
         try:
@@ -1337,35 +1480,12 @@ def pay_salary():
             cur = conn.cursor()
 
         if role_name == "doctor":
-            if includes_lab_cost and has_explicit_period:
+            if includes_lab_cost:
                 cur.execute(
                     """
                     SELECT
                         COALESCE(SUM(amount), 0),
                         COALESCE(SUM(GREATEST(lab_cost, 0)), 0)
-                    FROM income_records
-                    WHERE doctor_id = %s
-                      AND salary_payment_id IS NULL
-                      AND service_date BETWEEN %s AND %s
-                    """,
-                    (staff_id, start_date, end_date),
-                )
-            elif includes_lab_cost:
-                cur.execute(
-                    """
-                    SELECT
-                        COALESCE(SUM(amount), 0),
-                        COALESCE(SUM(GREATEST(lab_cost, 0)), 0)
-                    FROM income_records
-                    WHERE doctor_id = %s
-                      AND salary_payment_id IS NULL
-                    """,
-                    (staff_id,),
-                )
-            elif has_explicit_period:
-                cur.execute(
-                    """
-                    SELECT COALESCE(SUM(amount), 0), 0::numeric
                     FROM income_records
                     WHERE doctor_id = %s
                       AND salary_payment_id IS NULL
@@ -1380,8 +1500,9 @@ def pay_salary():
                     FROM income_records
                     WHERE doctor_id = %s
                       AND salary_payment_id IS NULL
+                      AND service_date BETWEEN %s AND %s
                     """,
-                    (staff_id,),
+                    (staff_id, start_date, end_date),
                 )
             gross_income_row = cur.fetchone()
             total_income = float(gross_income_row[0] or 0)
@@ -1389,9 +1510,37 @@ def pay_salary():
             commission_metrics = compute_doctor_commission_metrics(total_income, total_lab_fees, commission_rate)
             commission_part = commission_metrics["total_commission"]
         else:
+            try:
+                ensure_shifts_salary_payment_column(conn)
+                period_start = datetime.combine(start_date, time.min)
+                period_end = datetime.combine(end_date + timedelta(days=1), time.min)
+                cur.execute(
+                    """
+                    SELECT COALESCE(
+                        SUM(
+                            (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                            * (COALESCE(completion_percent, 100) / 100.0)
+                        ),
+                        0
+                    )
+                    FROM shifts
+                    WHERE staff_id = %s
+                      AND start_time >= %s
+                      AND end_time < %s
+                      AND status IN ('accepted', 'approved')
+                      AND salary_payment_id IS NULL
+                    """,
+                    (staff_id, period_start, period_end),
+                )
+            except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+                conn.rollback()
+                shift_weighted_hours = 0.0
+            else:
+                shift_weighted_hours = float(cur.fetchone()[0] or 0)
+
             total_income = 0.0
             total_lab_fees = 0.0
-            commission_part = 0.0
+            commission_part = round(shift_weighted_hours * base_salary, 2)
             commission_metrics = compute_doctor_commission_metrics(0.0, 0.0, commission_rate)
 
         cur.execute(
@@ -1404,7 +1553,10 @@ def pay_salary():
         )
         adjustments = float(cur.fetchone()[0] or 0)
 
-        calculated_amount = round(base_salary + commission_part + adjustments, 2)
+        if role_name == "doctor":
+            calculated_amount = round(base_salary + commission_part + adjustments, 2)
+        else:
+            calculated_amount = round(commission_part + adjustments, 2)
         if requested_amount is not None:
             total_amount = validate_salary(requested_amount)
         else:
@@ -1440,8 +1592,9 @@ def pay_salary():
         )
         
         # Mandatory report generation
-        report = build_salary_report_data(staff_id, from_param, to_param)
+        report = build_salary_report_data(staff_id, from_param, to_param, conn=conn)
         if not report or "error" in report:
+            logger.error("Salary report generation failed for staff %s: %s", staff_id, report)
             conn.rollback()
             return jsonify({"error": "report_generation_failed", "message": "Failed to generate mandatory salary report."}), 500
             
@@ -1457,7 +1610,7 @@ def pay_salary():
                 signature_info["signed_at"],
             )
             
-            pdf_data, filename, error = save_salary_report(staff_id, report, signature_info)
+            pdf_data, filename, error = save_salary_report(staff_id, report, signature_info, conn=conn)
             if error:
                 conn.rollback()
                 logger.error("Mandatory report storage failed for staff %s: %s", staff_id, error)
@@ -1490,22 +1643,35 @@ def pay_salary():
                 """
                 UPDATE income_records
                 SET salary_payment_id = %s
-                WHERE doctor_id = %s AND salary_payment_id IS NULL
+                WHERE doctor_id = %s
+                  AND salary_payment_id IS NULL
+                  AND service_date BETWEEN %s AND %s
                 """,
-                (payment_id, staff_id)
+                (payment_id, staff_id, start_date, end_date)
             )
         else:
+            cur.execute("SAVEPOINT shift_link_sp")
             try:
+                ensure_shifts_salary_payment_column(conn)
+                period_start = datetime.combine(start_date, time.min)
+                period_end = datetime.combine(end_date + timedelta(days=1), time.min)
                 cur.execute(
                     """
-                    DELETE FROM staff_timesheets
-                    WHERE staff_id = %s AND work_date <= %s
+                    UPDATE shifts
+                    SET salary_payment_id = %s,
+                        status = 'paid'
+                    WHERE staff_id = %s 
+                      AND start_time >= %s
+                      AND end_time < %s
+                      AND status = 'accepted'
+                      AND salary_payment_id IS NULL
                     """,
-                    (staff_id, payment_date)
+                    (payment_id, staff_id, period_start, period_end)
                 )
-            except psycopg2.errors.UndefinedTable:
-                conn.rollback()
-                cur = conn.cursor()
+            except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+                cur.execute("ROLLBACK TO SAVEPOINT shift_link_sp")
+            finally:
+                cur.execute("RELEASE SAVEPOINT shift_link_sp")
         
         # Link adjustments
         cur.execute(
@@ -1538,6 +1704,7 @@ def pay_salary():
         }), 201
     except Exception:
         conn.rollback()
+        logger.exception("Salary payment failed for staff %s", staff_id)
         raise
     finally:
         release_connection(conn)
@@ -1566,7 +1733,7 @@ def list_staff():
             day_end = datetime.combine(working_date, time(23, 59, 59, 999999))
             try:
                 cur.execute("SELECT 1 FROM shifts LIMIT 1")
-            except psycopg2.errors.UndefinedTable:
+            except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 conn.rollback()
                 return jsonify([])
 
@@ -1605,8 +1772,22 @@ def list_staff():
                        s.is_active,
                        r.name,
                        COALESCE(SUM(sp.amount), 0) AS commission_income,
-                       (SELECT COALESCE(SUM(amount - lab_cost), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
-                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments
+                       (SELECT COALESCE(SUM(amount - COALESCE(lab_cost, 0)), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
+                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments,
+                       (
+                           SELECT COALESCE(
+                               SUM(
+                                   (EXTRACT(EPOCH FROM (sh.end_time - sh.start_time)) / 3600.0)
+                                   * (COALESCE(sh.completion_percent, 100) / 100.0)
+                                   * s.base_salary
+                               ),
+                               0
+                           )
+                           FROM shifts sh
+                           WHERE sh.staff_id = s.id
+                             AND sh.status IN ('accepted', 'approved')
+                             AND sh.salary_payment_id IS NULL
+                       ) AS pending_shift_salary
                 FROM staff s
                 JOIN staff_roles r ON r.id = s.role_id
                 LEFT JOIN salary_payments sp ON sp.staff_id = s.id
@@ -1627,7 +1808,7 @@ def list_staff():
                 """,
                 params,
             )
-        except psycopg2.errors.UndefinedColumn:
+        except (psycopg2.errors.UndefinedColumn, psycopg2.errors.UndefinedTable):
             conn.rollback()
             cur = conn.cursor()
             cur.execute(
@@ -1645,8 +1826,9 @@ def list_staff():
                        s.is_active,
                        r.name,
                        COALESCE(SUM(sp.amount), 0) AS commission_income,
-                       (SELECT COALESCE(SUM(amount - lab_cost), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
-                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments
+                       (SELECT COALESCE(SUM(amount - COALESCE(lab_cost, 0)), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
+                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments,
+                       0::numeric AS pending_shift_salary
                 FROM staff s
                 JOIN staff_roles r ON r.id = s.role_id
                 LEFT JOIN salary_payments sp ON sp.staff_id = s.id
@@ -1681,6 +1863,7 @@ def list_staff():
         commission_income = float(row[12])
         unpaid_revenue = float(row[13])
         pending_adjustments = float(row[14])
+        pending_shift_salary = float(row[15] or 0)
 
         if commission_rate == 0:
             if total_revenue > 0 and commission_income > 0:
@@ -1694,9 +1877,7 @@ def list_staff():
         if role_name == "doctor":
             unpaid_amount = round((unpaid_revenue * commission_rate) + pending_adjustments, 2)
         else:
-            # For non-doctors, unpaid salary will be estimated on the frontend
-            # based on timesheets, or just show pending adjustments here
-            unpaid_amount = pending_adjustments
+            unpaid_amount = round(pending_shift_salary + pending_adjustments, 2)
 
         items.append(
             {

@@ -35,13 +35,15 @@ def test_search_endpoint_id_search(monkeypatch):
             self._idx = 0
 
         def execute(self, sql, params):
-            if "FROM patients p" in sql:
-                self._rows = [
-                    (123, "Test", "Patient", 0),
-                ]
-            else:
-                self._rows = []
-            self._idx = 0
+                if "FROM patients p" in sql:
+                    self._rows = [
+                        (123, "Test", "Patient", 0),
+                    ]
+                elif "SUM(amount)" in sql:
+                    self._rows = [(0.0,)]
+                else:
+                    self._rows = []
+                self._idx = 0
 
         def fetchall(self):
             return self._rows
@@ -80,14 +82,16 @@ def test_search_endpoint_partial_name(monkeypatch):
             self._idx = 0
 
         def execute(self, sql, params):
-            if "FROM patients p" in sql:
-                self._rows = [
-                    (1, "John", "Smith", 3),
-                    (2, "Johnny", "Smithe", 3),
-                ]
-            else:
-                self._rows = []
-            self._idx = 0
+                if "FROM patients p" in sql:
+                    self._rows = [
+                        (1, "John", "Smith", 3),
+                        (2, "Johnny", "Smithe", 3),
+                    ]
+                elif "SUM(amount)" in sql:
+                    self._rows = [(0.0,)]
+                else:
+                    self._rows = []
+                self._idx = 0
 
         def fetchall(self):
             return self._rows

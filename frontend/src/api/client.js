@@ -633,6 +633,7 @@ export function resetAjaxClient() {
  * get:(path:string, options?:object)=>Promise<any>,
  * post:(path:string, body?:any, options?:object)=>Promise<any>,
  * put:(path:string, body?:any, options?:object)=>Promise<any>,
+ * patch:(path:string, body?:any, options?:object)=>Promise<any>,
  * delete:(path:string, options?:object)=>Promise<any>
  * }}
  * @example
@@ -645,6 +646,7 @@ export function useApi() {
     get: (path, options = {}) => apiRequest(path, { ...options, method: "GET" }),
     post: (path, body, options = {}) => apiRequest(path, { ...options, method: "POST", body }),
     put: (path, body, options = {}) => apiRequest(path, { ...options, method: "PUT", body }),
+    patch: (path, body, options = {}) => apiRequest(path, { ...options, method: "PATCH", body }),
     delete: (path, options = {}) => apiRequest(path, { ...options, method: "DELETE" })
   };
 }

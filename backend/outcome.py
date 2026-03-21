@@ -475,6 +475,7 @@ def create_timesheet_payroll():
             (staff_id, total_amount, payment_date, note),
         )
         payment_id = cur.fetchone()[0]
+
         try:
             cur.execute(
                 """

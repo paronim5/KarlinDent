@@ -254,6 +254,14 @@ export default function ClinicSchedule({ api: injectedApi }) {
   }, [fetchTodayOnDutyDoctors]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      fetchShifts();
+      fetchTodayOnDutyDoctors();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [fetchShifts, fetchTodayOnDutyDoctors]);
+
+  useEffect(() => {
     const handler = (event) => {
       const next = event?.detail?.period;
       if (next && ["day", "week"].includes(next)) setView(next);

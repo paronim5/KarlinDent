@@ -9,9 +9,17 @@ export default function StaffRolePage() {
   const navigate = useNavigate();
   const api = useApi();
   const today = new Date().toISOString().slice(0, 10);
+  
+  // Calculate next month end or similar logic for default 'to' if needed
+  // But wait, the issue is that today is used as the end date for the filter.
+  // Let's set 'to' to be one month in the future to capture upcoming scheduled shifts by default.
+  const nextMonth = new Date();
+  nextMonth.setMonth(nextMonth.getMonth() + 1);
+  const toDefault = nextMonth.toISOString().slice(0, 10);
+
   const [error, setError] = useState("");
   const [from, setFrom] = useState(today.slice(0, 7) + "-01");
-  const [to, setTo] = useState(today);
+  const [to, setTo] = useState(toDefault);
   const [timesheets, setTimesheets] = useState([]);
   const [staff, setStaff] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -27,6 +35,9 @@ export default function StaffRolePage() {
     note: ""
   });
   const [isTimesheetCollapsed, setIsTimesheetCollapsed] = useState(false);
+  const [sortBy, setSortBy] = useState("date"); // "date" or "status"
+  const [sortOrder, setSortOrder] = useState("desc"); // "asc" or "desc"
+  const [filterStatus, setFilterStatus] = useState("all"); // "all", "pending", "approved", "declined"
 
   const [editingId, setEditingId] = useState(null);
 
@@ -40,11 +51,25 @@ export default function StaffRolePage() {
     try {
       const [staffList, ts] = await Promise.all([
         api.get("/staff"),
-        api.get(`/outcome/timesheets?staff_id=${id}&from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`)
+        api.get(`/schedule?staff_id=${id}&start=${encodeURIComponent(rangeFrom + 'T00:00:00Z')}&end=${encodeURIComponent(rangeTo + 'T23:59:59Z')}`)
       ]);
       const me = staffList.find((s) => String(s.id) === String(id));
       setStaff(me || null);
-      setTimesheets(ts);
+      
+      // Calculate hours for each shift
+      const shiftsWithHours = ts.map(s => {
+        const start = new Date(s.start);
+        const end = new Date(s.end);
+        const hours = (end - start) / (1000 * 60 * 60);
+        return {
+          ...s,
+          work_date: s.start.slice(0, 10),
+          start_time: s.start.slice(11, 16),
+          end_time: s.end.slice(11, 16),
+          hours: Number(hours.toFixed(2))
+        };
+      });
+      setTimesheets(shiftsWithHours);
     } catch (err) {
       console.error("Failed to load staff role data", err);
       const msg = err.message;
@@ -142,8 +167,18 @@ export default function StaffRolePage() {
     }
   }, [id, documentFilter.from, documentFilter.to]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      loadAll(from, to);
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [id, from, to]);
+
   const totalHours = useMemo(
-    () => timesheets.reduce((sum, t) => sum + t.hours, 0),
+    () =>
+      timesheets
+        .filter((t) => t.status === "accepted" && !t.salary_payment_id)
+        .reduce((sum, t) => sum + Number(t.salary_hours ?? t.hours ?? 0), 0),
     [timesheets]
   );
 
@@ -191,20 +226,22 @@ export default function StaffRolePage() {
         setError(t("staff_role.errors.required_shift_fields"));
         return;
       }
+      const start_time = `${form.workDate}T${form.startTime}:00Z`;
+      const end_time = `${form.workDate}T${form.endTime}:00Z`;
+
       if (editingId) {
-        await api.put(`/outcome/timesheets/${editingId}`, {
-          work_date: form.workDate,
-          start_time: form.startTime,
-          end_time: form.endTime,
-          note: form.note || undefined
+        await api.put(`/schedule/${editingId}`, {
+          staff_id: Number(id),
+          start_time,
+          end_time,
+          note: form.note
         });
       } else {
-        await api.post("/outcome/timesheets", {
+        await api.post("/schedule", {
           staff_id: Number(id),
-          work_date: form.workDate,
-          start_time: form.startTime,
-          end_time: form.endTime,
-          note: form.note || undefined
+          start_time,
+          end_time,
+          note: form.note
         });
       }
       setForm({
@@ -219,7 +256,7 @@ export default function StaffRolePage() {
       console.error("Failed to save shift", err);
       const msg = err.message;
       if (msg === "invalid_time_range") setError(t("staff_role.errors.invalid_time_range"));
-      else if (msg === "timesheet_not_found") setError(t("staff_role.errors.shift_not_found"));
+      else if (msg === "shift_not_found") setError(t("staff_role.errors.shift_not_found"));
       else if (msg === "staff_not_found") setError(t("staff_role.errors.staff_not_found"));
       else if (msg === "invalid_data") setError(t("staff_role.errors.invalid_shift_data"));
       else setError(err.message || t("staff_role.errors.save_shift"));
@@ -242,13 +279,44 @@ export default function StaffRolePage() {
     if (!window.confirm(t("staff_role.confirm_delete_shift"))) return;
     setError("");
     try {
-      await api.delete(`/outcome/timesheets/${tsId}`);
+      await api.delete(`/schedule/${tsId}`);
       await loadAll();
     } catch (err) {
       console.error("Failed to delete shift", err);
       const msg = err.message;
-      if (msg === "timesheet_not_found") setError(t("staff_role.errors.shift_not_found"));
+      if (msg === "shift_not_found") setError(t("staff_role.errors.shift_not_found"));
       else setError(err.message || t("staff_role.errors.delete_shift"));
+    }
+  };
+
+  const handleUpdateStatus = async (shiftId, newStatus) => {
+    setError("");
+    try {
+      await api.patch(`/schedule/${shiftId}/status`, { status: newStatus });
+      await loadAll();
+    } catch (err) {
+      console.error("Failed to update shift status", err);
+      setError(err.message || "Failed to update shift status");
+    }
+  };
+
+  const handleBulkApprove = async () => {
+    const pastPendingShiftIds = timesheets
+      .filter(t => t.status === 'pending' && new Date(t.end) < new Date())
+      .map(t => t.id);
+
+    if (pastPendingShiftIds.length === 0) {
+      alert("No past pending shifts to approve.");
+      return;
+    }
+
+    setError("");
+    try {
+      await api.post("/schedule/bulk-status", { shift_ids: pastPendingShiftIds, status: "accepted" });
+      await loadAll();
+    } catch (err) {
+      console.error("Failed to bulk approve shifts", err);
+      setError(err.message || "Failed to bulk approve shifts");
     }
   };
 
@@ -265,6 +333,34 @@ export default function StaffRolePage() {
   const handlePeriodApply = async () => {
     await loadAll(from, to);
   };
+
+  const sortedTimesheets = useMemo(() => {
+    let filtered = [...timesheets];
+    if (filterStatus !== "all") {
+      filtered = filtered.filter(t => t.status === filterStatus);
+    }
+
+    return filtered.sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === "date") {
+        comparison = new Date(a.start).getTime() - new Date(b.start).getTime();
+      } else if (sortBy === "status") {
+        const statusOrder = { pending: 0, accepted: 1, declined: 2 };
+        comparison = statusOrder[a.status] - statusOrder[b.status];
+      }
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+  }, [timesheets, sortBy, sortOrder, filterStatus]);
+
+  const acceptedTimesheets = useMemo(
+    () => sortedTimesheets.filter(t => t.status === "accepted" || t.status === "paid"),
+    [sortedTimesheets]
+  );
+
+  const nonAcceptedTimesheets = useMemo(
+    () => sortedTimesheets.filter(t => t.status !== "accepted" && t.status !== "paid"),
+    [sortedTimesheets]
+  );
 
   const title = staff ? staff.role.charAt(0).toUpperCase() + staff.role.slice(1) : t("staff_role.title_fallback");
 
@@ -434,50 +530,203 @@ export default function StaffRolePage() {
         </div>
 
         <div className="panel staff-role-timesheet-panel">
-          <div className="panel-header">
+          <div className="panel-header" style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div className="panel-title">{t("staff_role.timesheet_log")}</div>
               <div className="panel-meta">{t("staff_role.entries_count", { count: timesheets.length })}</div>
             </div>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => setIsTimesheetCollapsed((prev) => !prev)}
-              aria-expanded={!isTimesheetCollapsed}
-              aria-controls="staff-role-timesheet-log"
-            >
-              {isTimesheetCollapsed ? t("staff_role.expand_log", { defaultValue: "Expand Log" }) : t("staff_role.collapse_log", { defaultValue: "Collapse Log" })}
-            </button>
+            
+            <div className="timesheet-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div className="filter-group" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span className="form-label" style={{ margin: 0, fontSize: '10px' }}>Sort:</span>
+                <select 
+                  className="form-input" 
+                  style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [field, order] = e.target.value.split('-');
+                    setSortBy(field);
+                    setSortOrder(order);
+                  }}
+                >
+                  <option value="date-desc">Date (Newest)</option>
+                  <option value="date-asc">Date (Oldest)</option>
+                  <option value="status-asc">Status</option>
+                </select>
+              </div>
+
+              <div className="filter-group" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span className="form-label" style={{ margin: 0, fontSize: '10px' }}>Status:</span>
+                <select 
+                  className="form-input" 
+                  style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                >
+                  <option value="all">All</option>
+                  <option value="pending">Pending</option>
+                  <option value="accepted">Accepted</option>
+                  <option value="declined">Declined</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={handleBulkApprove}
+                  title="Accept all past pending shifts"
+                >
+                  Bulk Accept Past
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setIsTimesheetCollapsed((prev) => !prev)}
+                  aria-expanded={!isTimesheetCollapsed}
+                  aria-controls="staff-role-timesheet-log"
+                >
+                  {isTimesheetCollapsed ? t("staff_role.expand_log", { defaultValue: "Expand Log" }) : t("staff_role.collapse_log", { defaultValue: "Collapse Log" })}
+                </button>
+              </div>
+            </div>
           </div>
+          
           <div
             id="staff-role-timesheet-log"
             className={`table-wrapper staff-role-timesheet-table ${isTimesheetCollapsed ? "collapsed" : ""}`}
             hidden={isTimesheetCollapsed}
+            style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '16px' }}
           >
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{t("staff_role.headers.date")}</th>
-                  <th>{t("staff_role.headers.start")}</th>
-                  <th>{t("staff_role.headers.end")}</th>
-                  <th>{t("staff_role.headers.hours")}</th>
-                  <th>{t("staff_role.headers.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {timesheets.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="mono">{entry.work_date}</td>
-                    <td className="mono">{formatTime(entry.start_time)}</td>
-                    <td className="mono">{formatTime(entry.end_time)}</td>
-                    <td className="mono" style={{ color: "var(--accent)" }}>{Number(entry.hours || 0).toFixed(2)}</td>
-                    <td>
-                      <button className="pay-btn" onClick={() => handleEdit(entry)}>{t("staff.actions.edit")}</button>
-                    </td>
+            {/* Active / Pending / Declined Shifts */}
+            <div className="shifts-section">
+              <div className="panel-meta" style={{ marginBottom: '12px', color: 'var(--accent)' }}>Active & Pending Shifts</div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t("staff_role.headers.date")}</th>
+                    <th>{t("staff_role.headers.start")}</th>
+                    <th>{t("staff_role.headers.end")}</th>
+                    <th>{t("staff_role.headers.hours")}</th>
+                    <th>Status</th>
+                    <th>{t("staff_role.headers.actions")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="shift-transition-group">
+                  {nonAcceptedTimesheets.length === 0 ? (
+                    <tr><td colSpan="6" className="empty-state">No pending or active shifts found.</td></tr>
+                  ) : (
+                    nonAcceptedTimesheets.map((entry) => {
+                      const isPast = new Date(entry.end) < new Date();
+                      return (
+                        <tr key={entry.id} className="shift-row-transition" style={{ opacity: entry.status === 'pending' ? 0.6 : 1 }}>
+                          <td className="mono">{entry.work_date}</td>
+                          <td className="mono">{formatTime(entry.start_time)}</td>
+                          <td className="mono">{formatTime(entry.end_time)}</td>
+                          <td className="mono" style={{ color: "var(--accent)" }}>
+                            {Number(entry.hours || 0).toFixed(2)}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              <span className={`pill ${entry.status === 'declined' ? 'pill-red' : 'pill-orange'}`}>
+                                {entry.status.toUpperCase()}
+                              </span>
+                              {entry.salary_payment_id && (
+                                <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--subtext)', fontSize: '9px' }}>
+                                  PAID
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <div className="doc-actions">
+                              {!entry.salary_payment_id && (
+                                <>
+                                  {entry.status === 'pending' && isPast && (
+                                    <>
+                                      <button className="pay-btn" onClick={() => handleUpdateStatus(entry.id, 'accepted')}>Accept</button>
+                                      <button className="pay-btn" onClick={() => handleUpdateStatus(entry.id, 'declined')}>Decline</button>
+                                    </>
+                                  )}
+                                  <button className="pay-btn" onClick={() => handleEdit(entry)}>{t("staff.actions.edit")}</button>
+                                  <button className="pay-btn" onClick={() => handleDelete(entry.id)}>{t("common.delete")}</button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Accepted Shifts */}
+            <div className="shifts-section approved-shifts-container">
+              <div className="panel-meta" style={{ marginBottom: '12px', color: 'var(--green)' }}>Accepted Shifts (Ready for Payroll)</div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t("staff_role.headers.date")}</th>
+                    <th>{t("staff_role.headers.start")}</th>
+                    <th>{t("staff_role.headers.end")}</th>
+                    <th>{t("staff_role.headers.hours")}</th>
+                    <th>Status</th>
+                    <th>{t("staff_role.headers.actions")}</th>
+                  </tr>
+                </thead>
+                <tbody className="shift-transition-group">
+                  {acceptedTimesheets.length === 0 ? (
+                    <tr><td colSpan="6" className="empty-state">No accepted shifts yet.</td></tr>
+                  ) : (
+                    acceptedTimesheets.map((entry) => (
+                      <tr key={entry.id} className="shift-row-transition approved-shift-row">
+                        <td className="mono">{entry.work_date}</td>
+                        <td className="mono">{formatTime(entry.start_time)}</td>
+                        <td className="mono">{formatTime(entry.end_time)}</td>
+                        <td className="mono" style={{ color: "var(--green)" }}>
+                          {Number(entry.hours || 0).toFixed(2)}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            {entry.status === 'paid' ? (
+                              <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--subtext)', border: '1px solid var(--border)' }}>
+                                PAID
+                              </span>
+                            ) : (
+                              <span className="pill pill-green">
+                                {entry.status.toUpperCase()}
+                              </span>
+                            )}
+                            {!entry.salary_payment_id && entry.status === 'accepted' && (
+                              <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--accent)', fontSize: '9px', border: '1px solid var(--accent)' }}>
+                                UNPAID
+                              </span>
+                            )}
+                            {entry.salary_payment_id && entry.status !== 'paid' && (
+                              <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--subtext)', fontSize: '9px' }}>
+                                PAID
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="doc-actions">
+                            {!entry.salary_payment_id && entry.status !== 'paid' && (
+                              <>
+                                <button className="pay-btn" onClick={() => handleEdit(entry)}>{t("staff.actions.edit")}</button>
+                                <button className="pay-btn" onClick={() => handleDelete(entry.id)}>{t("common.delete")}</button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

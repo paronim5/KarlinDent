@@ -401,16 +401,31 @@ const resources = {
       },
       "schedule": {
         "today": "Today",
-        "add_shift": "+ Add Shift",
+        "add_shift": "Add Shift",
         "stats": {
           "shifts": "Shifts",
           "visible_staff": "Visible staff",
           "on_duty_now": "On duty now",
           "roles": "Roles"
         },
+        "section": {
+          "doctors": "Doctors",
+          "staff": "Staff"
+        },
+        "add_income": "Record income",
+        "todays_team": "Today's Team",
+        "available_doctors": "Available Doctors",
+        "available_staff": "Available Staff",
+        "all_scheduled": "Everyone is scheduled",
+        "empty_doctors": "No doctors scheduled for this day",
+        "empty_staff": "No staff scheduled for this day",
+        "empty_hint": "Click the + button above to add someone",
+        "status": {
+          "pending": "PENDING"
+        },
         "calendar": "Calendar",
         "on_duty_today": "On Duty Today",
-        "no_on_duty_today": "No doctors on duty today",
+        "no_on_duty_today": "No one on duty today",
         "duty_item": "Dr. {{lastName}} – {{role}} {{start}}-{{end}}",
         "filters": {
           "no_staff": "No staff matching filters"
@@ -835,16 +850,31 @@ const resources = {
       },
       "schedule": {
         "today": "Сегодня",
-        "add_shift": "+ Добавить смену",
+        "add_shift": "Добавить смену",
         "stats": {
           "shifts": "Смены",
           "visible_staff": "Видимый персонал",
           "on_duty_now": "На смене сейчас",
           "roles": "Роли"
         },
+        "section": {
+          "doctors": "Врачи",
+          "staff": "Персонал"
+        },
+        "add_income": "Записать доход",
+        "todays_team": "Команда сегодня",
+        "available_doctors": "Доступные врачи",
+        "available_staff": "Доступный персонал",
+        "all_scheduled": "Все запланированы",
+        "empty_doctors": "На этот день нет запланированных врачей",
+        "empty_staff": "На этот день нет запланированного персонала",
+        "empty_hint": "Нажмите +, чтобы добавить кого-нибудь",
+        "status": {
+          "pending": "ОЖИДАЕТ"
+        },
         "calendar": "Календарь",
         "on_duty_today": "На смене сегодня",
-        "no_on_duty_today": "Сегодня нет дежурных врачей",
+        "no_on_duty_today": "Сегодня никого на смене",
         "duty_item": "Д-р {{lastName}} — {{role}} {{start}}-{{end}}",
         "filters": {
           "no_staff": "Нет сотрудников по выбранным фильтрам"
@@ -1269,16 +1299,31 @@ const resources = {
       },
       "schedule": {
         "today": "Dnes",
-        "add_shift": "+ Přidat směnu",
+        "add_shift": "Přidat směnu",
         "stats": {
           "shifts": "Směny",
           "visible_staff": "Viditelný personál",
           "on_duty_now": "Právě ve službě",
           "roles": "Role"
         },
+        "section": {
+          "doctors": "Lékaři",
+          "staff": "Personál"
+        },
+        "add_income": "Zaznamenat příjem",
+        "todays_team": "Dnešní tým",
+        "available_doctors": "Dostupní lékaři",
+        "available_staff": "Dostupný personál",
+        "all_scheduled": "Všichni jsou naplánováni",
+        "empty_doctors": "Na tento den nejsou naplánováni žádní lékaři",
+        "empty_staff": "Na tento den není naplánován žádný personál",
+        "empty_hint": "Klikněte na + pro přidání",
+        "status": {
+          "pending": "ČEKAJÍCÍ"
+        },
         "calendar": "Kalendář",
         "on_duty_today": "Dnes ve službě",
-        "no_on_duty_today": "Dnes nejsou ve službě žádní lékaři",
+        "no_on_duty_today": "Dnes nikdo ve službě",
         "duty_item": "Dr. {{lastName}} – {{role}} {{start}}-{{end}}",
         "filters": {
           "no_staff": "Žádný personál neodpovídá filtrům"

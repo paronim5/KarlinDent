@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useApi } from "../api/client.js";
 
 export default function AddIncomePage() {
@@ -8,6 +8,7 @@ export default function AddIncomePage() {
   const api = useApi();
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const isEdit = !!id;
   
   const initialForm = {
@@ -22,7 +23,7 @@ export default function AddIncomePage() {
     labRequired: false,
     labCost: "",
     labNote: "",
-    serviceDate: new Date().toISOString().slice(0, 10),
+    serviceDate: searchParams.get("date") || new Date().toISOString().slice(0, 10),
     moreDetails: false,
     phone: "",
     street: "",
@@ -109,6 +110,14 @@ export default function AddIncomePage() {
     loadReceiptReasons();
     loadMedicines();
   }, []);
+
+  useEffect(() => {
+    const doctorParam = searchParams.get("doctor");
+    if (doctorParam && doctors.length > 0 && !form.doctorId) {
+      const found = doctors.find((d) => String(d.id) === doctorParam);
+      if (found) setForm((p) => ({ ...p, doctorId: String(found.id) }));
+    }
+  }, [doctors]);
 
   useEffect(() => {
     if (form.serviceDate) {

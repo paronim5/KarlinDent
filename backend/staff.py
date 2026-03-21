@@ -696,8 +696,8 @@ def build_salary_report_pdf(report: Dict[str, Any], signature_info: Optional[Dic
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
         from reportlab.lib.utils import ImageReader
-        from reportlab.lib.enums import TA_LEFT, TA_RIGHT
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+        from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, KeepTogether, HRFlowable
     except Exception as exc:
         logger.exception("PDF dependency error: %s", exc)
         raise
@@ -741,39 +741,20 @@ def build_salary_report_pdf(report: Dict[str, Any], signature_info: Optional[Dic
                         value.seek(0)
                     except Exception:
                         pass
-                
+
                 with PILImage.open(value) as img:
                     img = img.convert("RGBA")
-                    
-                    # 1. Performance: Downscale large canvas images (e.g. Retina displays)
-                    # A signature block in the PDF is only ~90mm wide (~250px at 72dpi).
-                    # 800px is more than enough for high quality.
                     if img.width > 800:
                         ratio = 800.0 / img.width
                         new_size = (800, int(img.height * ratio))
                         img = img.resize(new_size, PILImage.Resampling.LANCZOS)
-
-                    # 2. Optimization: Use band manipulation instead of pixel loops
-                    # The goal is to turn all visible pixels to black while preserving transparency.
-                    # Original logic increased alpha for white-ish pixels.
                     r, g, b, a = img.split()
-                    
-                    # Convert to grayscale to check brightness
                     gray = img.convert("L")
-                    # mask where brightness > 245
                     white_mask = gray.point(lambda x: 255 if x > 245 else 0, mode="1")
-                    
-                    # Create new alpha band
-                    # If white_mask is 1 (255), we want max(a, 220)
-                    # We can use PIL.Image.composite or just point manipulation
                     high_alpha = a.point(lambda x: max(x, 220))
                     new_alpha = PILImage.composite(high_alpha, a, white_mask)
-                    
-                    # Pure black color channels
                     black_band = PILImage.new("L", img.size, 0)
-                    
                     res_img = PILImage.merge("RGBA", (black_band, black_band, black_band, new_alpha))
-                    
                     output = io.BytesIO()
                     res_img.save(output, format="PNG")
                     output.seek(0)
@@ -787,11 +768,8 @@ def build_salary_report_pdf(report: Dict[str, Any], signature_info: Optional[Dic
         amount = float(value or 0)
         return f"{amount:,.2f} CZK"
 
-    def wrap_token(value: Any, step: int = 32) -> str:
-        raw = str(value or "").strip()
-        if not raw:
-            return "—"
-        return "<br/>".join(raw[i:i + step] for i in range(0, len(raw), step))
+    page_w = A4[0]
+    content_w = page_w - 32 * mm
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -800,114 +778,64 @@ def build_salary_report_pdf(report: Dict[str, Any], signature_info: Optional[Dic
         leftMargin=16 * mm,
         rightMargin=16 * mm,
         topMargin=16 * mm,
-        bottomMargin=18 * mm,
+        bottomMargin=20 * mm,
     )
     styles = getSampleStyleSheet()
     elements = []
-    brand_color = colors.HexColor("#f97316")
+    dark = colors.HexColor("#111827")
     border_color = colors.HexColor("#d6d8e1")
     header_bg = colors.HexColor("#1f2937")
     muted_text = colors.HexColor("#6b7280")
-    normal_style = ParagraphStyle(
-        "ReportNormal",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor("#111827"),
-    )
-    label_style = ParagraphStyle(
-        "ReportLabel",
-        parent=normal_style,
-        fontName="Helvetica-Bold",
-    )
-    value_style = ParagraphStyle(
-        "ReportValue",
-        parent=normal_style,
-        alignment=TA_RIGHT,
-    )
-    title_style = ParagraphStyle(
-        "ReportTitle",
-        parent=styles["Title"],
-        fontName="Helvetica-Bold",
-        fontSize=28,
-        leading=32,
-        textColor=colors.HexColor("#111827"),
-        alignment=TA_LEFT,
-        spaceAfter=2,
-    )
-    subtitle_style = ParagraphStyle(
-        "ReportSubtitle",
-        parent=normal_style,
-        fontName="Helvetica-Bold",
-        fontSize=11,
-        textColor=brand_color,
-        spaceAfter=10,
-    )
-    section_title_style = ParagraphStyle(
-        "SectionTitle",
-        parent=normal_style,
-        fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=14,
-        textColor=colors.HexColor("#111827"),
-        spaceAfter=6,
-    )
-    legal_style = ParagraphStyle(
-        "LegalText",
-        parent=normal_style,
-        fontSize=9.5,
-        leading=13,
-        textColor=muted_text,
-    )
-    token_style = ParagraphStyle(
-        "TokenText",
-        parent=normal_style,
-        fontName="Helvetica",
-        fontSize=8.5,
-        leading=10.5,
-    )
-    signature_detail_style = ParagraphStyle(
-        "SignatureDetail",
-        parent=normal_style,
-        fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=14,
-        textColor=colors.HexColor("#111827"),
-    )
+    accent = colors.HexColor("#f97316")
 
-    staff_name = " ".join(filter(None, [report["staff"]["first_name"], report["staff"]["last_name"]])).strip()
-    report_period = f"{report['period']['from']} to {report['period']['to']}"
+    normal_style = ParagraphStyle("N", parent=styles["Normal"], fontName="Helvetica", fontSize=9.5, leading=13, textColor=dark)
+    bold_style = ParagraphStyle("B", parent=normal_style, fontName="Helvetica-Bold")
+    value_style = ParagraphStyle("V", parent=normal_style, alignment=TA_RIGHT)
+    value_bold = ParagraphStyle("VB", parent=value_style, fontName="Helvetica-Bold")
+    title_style = ParagraphStyle("T", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=22, leading=26, textColor=dark, alignment=TA_LEFT, spaceAfter=2)
+    subtitle_style = ParagraphStyle("ST", parent=normal_style, fontName="Helvetica-Bold", fontSize=10, textColor=accent, spaceAfter=6)
+    section_style = ParagraphStyle("S", parent=normal_style, fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=dark, spaceBefore=14, spaceAfter=6)
+    muted_style = ParagraphStyle("M", parent=normal_style, fontSize=8.5, leading=11, textColor=muted_text)
+    total_label = ParagraphStyle("TL", parent=normal_style, fontName="Helvetica-Bold", fontSize=11, textColor=dark)
+    total_value = ParagraphStyle("TV", parent=normal_style, fontName="Helvetica-Bold", fontSize=11, textColor=dark, alignment=TA_RIGHT)
+
+    staff_name = " ".join(filter(None, [report["staff"]["first_name"], report["staff"]["last_name"]])).strip() or "Unknown"
+    period_from = report["period"]["from"]
+    period_to = report["period"]["to"]
+
+    # ── Header ──
     elements.append(Paragraph("KarlinDent", subtitle_style))
     elements.append(Paragraph("Salary Report", title_style))
-    meta_table = Table(
-        [
-            [Paragraph("Staff", label_style), Paragraph(staff_name or "Unknown", value_style)],
-            [Paragraph("Role", label_style), Paragraph(str(report.get("role", "")).title(), value_style)],
-            [Paragraph("Report Period", label_style), Paragraph(report_period, value_style)],
-        ],
-        colWidths=[42 * mm, 130 * mm],
-    )
+    elements.append(Spacer(1, 4))
+
+    meta_data = [
+        [Paragraph("Employee", bold_style), Paragraph(staff_name, normal_style)],
+        [Paragraph("Position", bold_style), Paragraph(str(report.get("role", "")).title(), normal_style)],
+        [Paragraph("Period", bold_style), Paragraph(f"{period_from}  —  {period_to}", normal_style)],
+    ]
+    meta_table = Table(meta_data, colWidths=[30 * mm, content_w - 30 * mm])
     meta_table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.8, border_color),
-        ("INNERGRID", (0, 0), (-1, -1), 0.4, border_color),
-        ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.4, border_color),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     elements.append(meta_table)
-    elements.append(Spacer(1, 12))
+
+    summary = report.get("summary", {})
 
     if report["role"] == "doctor":
-        last_payment_date = report.get("last_payment_date") or "Never"
-        elements.append(Paragraph("Patient Revenue Breakdown", section_title_style))
-        elements.append(Paragraph(f"Last Salary Payment: {last_payment_date}", normal_style))
-        elements.append(Spacer(1, 6))
+        # ── Patient breakdown ──
+        last_payment_date = report.get("last_payment_date") or "—"
+        elements.append(Paragraph("Patient Revenue", section_style))
+        elements.append(Paragraph(f"Since last payment: {last_payment_date}", muted_style))
+        elements.append(Spacer(1, 4))
 
-        table_data = [["Patient", "Gross (CZK)", "Lab Fee (CZK)", "Net (CZK)"]]
+        hdr_style = ParagraphStyle("TH", parent=normal_style, fontName="Helvetica-Bold", fontSize=9, textColor=colors.whitesmoke)
+        hdr_r_style = ParagraphStyle("THR", parent=hdr_style, alignment=TA_RIGHT)
+        table_data = [[Paragraph("Patient", hdr_style), Paragraph("Revenue", hdr_r_style), Paragraph("Lab", hdr_r_style), Paragraph("Net", hdr_r_style)]]
         for row in report.get("patients", []):
             table_data.append([
                 Paragraph(str(row["name"]), normal_style),
@@ -915,230 +843,191 @@ def build_salary_report_pdf(report: Dict[str, Any], signature_info: Optional[Dic
                 Paragraph(format_money(row.get("lab_fee", 0)), value_style),
                 Paragraph(format_money(row.get("net_paid", 0)), value_style),
             ])
-
         if len(table_data) == 1:
-            table_data.append([
-                Paragraph("No income records for period", normal_style),
-                Paragraph(format_money(0), value_style),
-                Paragraph(format_money(0), value_style),
-                Paragraph(format_money(0), value_style),
-            ])
+            table_data.append([Paragraph("No records", normal_style), Paragraph("—", value_style), Paragraph("—", value_style), Paragraph("—", value_style)])
 
-        table = Table(table_data, colWidths=[84 * mm, 29 * mm, 29 * mm, 30 * mm])
+        table = Table(table_data, colWidths=[content_w - 90 * mm, 30 * mm, 30 * mm, 30 * mm])
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), header_bg),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, border_color),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, border_color),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
         ]))
         elements.append(table)
-        elements.append(Spacer(1, 12))
+        elements.append(Spacer(1, 10))
 
-        summary = report.get("summary", {})
-        summary_data = [
+        # ── Summary ──
+        elements.append(Paragraph("Calculation", section_style))
+        summary_rows = [
             [Paragraph("Base Salary", normal_style), Paragraph(format_money(summary.get("base_salary", 0)), value_style)],
-            [Paragraph("Commission Base (After Lab Fees)", normal_style), Paragraph(format_money(summary.get("commission_base_income", 0)), value_style)],
-            [
-                Paragraph(f"Commission ({summary.get('commission_rate', 0) * 100:.2f}%)", normal_style),
-                Paragraph(format_money(summary.get("total_commission", 0)), value_style),
-            ],
-            [Paragraph("Lab Fees", normal_style), Paragraph(format_money(summary.get("total_lab_fees", 0)), value_style)],
-            [Paragraph("Adjustments", normal_style), Paragraph(format_money(summary.get("adjustments", 0)), value_style)],
-            [Paragraph("Total Salary", label_style), Paragraph(format_money(summary.get("total_salary", 0)), value_style)],
+            [Paragraph("Commission Base (after lab fees)", normal_style), Paragraph(format_money(summary.get("commission_base_income", 0)), value_style)],
+            [Paragraph(f"Commission ({summary.get('commission_rate', 0) * 100:.0f}%)", normal_style), Paragraph(format_money(summary.get("total_commission", 0)), value_style)],
+            [Paragraph("Lab Fees (deducted)", normal_style), Paragraph(format_money(summary.get("total_lab_fees", 0)), value_style)],
         ]
-        summary_table = Table(summary_data, colWidths=[120 * mm, 52 * mm])
+        adj = float(summary.get("adjustments", 0))
+        if adj != 0:
+            summary_rows.append([Paragraph("Adjustments", normal_style), Paragraph(format_money(adj), value_style)])
+        summary_table = Table(summary_rows, colWidths=[content_w - 50 * mm, 50 * mm])
         summary_table.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, border_color),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fff7ed")),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, border_color),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
         elements.append(summary_table)
+
     else:
-        summary = report.get("summary", {})
-        elements.append(Paragraph("Work Schedule Summary", section_title_style))
-        summary_card = Table(
-            [
-                [Paragraph("Working Days", label_style), Paragraph(str(summary.get("working_days", 0)), value_style)],
-                [Paragraph("Total Hours", label_style), Paragraph(f"{summary.get('total_hours', 0):.2f}", value_style)],
-                [Paragraph("Hourly Rate", label_style), Paragraph(format_money(summary.get("base_salary", 0)), value_style)],
-                [Paragraph("Total Salary", label_style), Paragraph(format_money(summary.get("total_salary", 0)), value_style)],
-            ],
-            colWidths=[60 * mm, 112 * mm],
-        )
-        summary_card.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.8, border_color),
-            ("INNERGRID", (0, 0), (-1, -1), 0.4, border_color),
-            ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ]))
-        elements.append(summary_card)
-        elements.append(Spacer(1, 10))
+        # ── Non-doctor: timesheet ──
+        elements.append(Paragraph("Work Schedule", section_style))
 
-        schedule_data = [["Date", "Time Range", "Hours", "Note"]]
+        hdr_style = ParagraphStyle("TH", parent=normal_style, fontName="Helvetica-Bold", fontSize=9, textColor=colors.whitesmoke)
+        hdr_r_style = ParagraphStyle("THR", parent=hdr_style, alignment=TA_RIGHT)
+        schedule_data = [[Paragraph("Date", hdr_style), Paragraph("Time", hdr_style), Paragraph("Hours", hdr_r_style), Paragraph("Note", hdr_style)]]
         for row in report.get("timesheets", []):
-            time_range = f"{row['start_time']} - {row['end_time']}".strip(" -")
-            schedule_data.append(
-                [
-                    Paragraph(row["date"], normal_style),
-                    Paragraph(time_range or "—", normal_style),
-                    Paragraph(f"{float(row['hours'] or 0):.2f}", value_style),
-                    Paragraph(str(row["note"] or "—"), normal_style),
-                ]
-            )
-
-        if len(schedule_data) == 1:
+            time_range = f"{row['start_time']} – {row['end_time']}".strip(" –")
             schedule_data.append([
-                Paragraph("No timesheets for period", normal_style),
-                Paragraph("", normal_style),
-                Paragraph("0.00", value_style),
-                Paragraph("", normal_style),
+                Paragraph(row["date"], normal_style),
+                Paragraph(time_range or "—", normal_style),
+                Paragraph(f"{float(row['hours'] or 0):.2f}", value_style),
+                Paragraph(str(row["note"] or ""), normal_style),
             ])
+        if len(schedule_data) == 1:
+            schedule_data.append([Paragraph("No shifts", normal_style), Paragraph("", normal_style), Paragraph("0.00", value_style), Paragraph("", normal_style)])
 
-        schedule_table = Table(schedule_data, colWidths=[30 * mm, 46 * mm, 20 * mm, 76 * mm])
+        schedule_table = Table(schedule_data, colWidths=[28 * mm, 40 * mm, 18 * mm, content_w - 86 * mm])
         schedule_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), header_bg),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, border_color),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, border_color),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
         ]))
         elements.append(schedule_table)
+        elements.append(Spacer(1, 10))
 
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph(
-        "This document is an official salary statement prepared by the clinic. It confirms the compensation details for the stated period and is issued for lawful payroll documentation, audit, and staff verification purposes.",
-        legal_style,
-    ))
-
-    signature_canvas_image = None
-    if signature_info:
-        elements.append(Spacer(1, 12))
-        signature_table_data = [
-            [Paragraph("Signer Name", label_style), Paragraph(signature_info.get("signer_name", ""), signature_detail_style)],
-            [Paragraph("Signed At (UTC)", label_style), Paragraph(signature_info.get("signed_at", ""), signature_detail_style)],
-            [Paragraph("Signature Hash", label_style), Paragraph(wrap_token(signature_info.get("signature_hash", "")), token_style)],
+        # ── Summary ──
+        elements.append(Paragraph("Calculation", section_style))
+        summary_rows = [
+            [Paragraph("Working Days", normal_style), Paragraph(str(summary.get("working_days", 0)), value_style)],
+            [Paragraph("Total Hours", normal_style), Paragraph(f"{summary.get('total_hours', 0):.2f}", value_style)],
+            [Paragraph("Hourly Rate", normal_style), Paragraph(format_money(summary.get("base_salary", 0)), value_style)],
         ]
-        if signature_info.get("signature_token"):
-            signature_table_data.append([
-                Paragraph("Signature Token", label_style),
-                Paragraph(wrap_token(signature_info.get("signature_token")), token_style),
-            ])
-        signature_table = Table(signature_table_data, colWidths=[44 * mm, 128 * mm])
-        signature_table.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 2.0, colors.HexColor("#111827")),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        adj = float(summary.get("adjustments", 0))
+        if adj != 0:
+            summary_rows.append([Paragraph("Adjustments", normal_style), Paragraph(format_money(adj), value_style)])
+        summary_table = Table(summary_rows, colWidths=[content_w - 50 * mm, 50 * mm])
+        summary_table.setStyle(TableStyle([
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, border_color),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
-        elements.append(signature_table)
+        elements.append(summary_table)
+
+    # ── Total (bold, highlighted) ──
+    elements.append(Spacer(1, 6))
+    total_salary = summary.get("total_salary", 0)
+    total_row = Table(
+        [[Paragraph("Total Salary", total_label), Paragraph(format_money(total_salary), total_value)]],
+        colWidths=[content_w - 50 * mm, 50 * mm],
+    )
+    total_row.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff7ed")),
+        ("BOX", (0, 0), (-1, -1), 0.6, accent),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elements.append(total_row)
+
+    # ── Signature block (inline flowable — never overlaps content) ──
+    if signature_info:
+        elements.append(Spacer(1, 20))
+        sig_elements = []
+        sig_elements.append(HRFlowable(width="100%", thickness=0.5, color=border_color, spaceBefore=0, spaceAfter=8))
+
+        signer_name_val = str(signature_info.get("signer_name") or "")
+        signed_at_raw = str(signature_info.get("signed_at") or "")
+        # Format date nicely — strip UTC timezone info
+        try:
+            from datetime import datetime as _dt
+            _parsed = _dt.fromisoformat(signed_at_raw.replace("Z", "+00:00"))
+            signed_at_display = _parsed.strftime("%d %b %Y, %H:%M")
+        except Exception:
+            signed_at_display = signed_at_raw
+
+        sig_meta = Table([
+            [Paragraph("Signed by", bold_style), Paragraph(signer_name_val, normal_style),
+             Paragraph("Date", bold_style), Paragraph(signed_at_display, normal_style)],
+        ], colWidths=[22 * mm, (content_w / 2) - 22 * mm, 16 * mm, (content_w / 2) - 16 * mm])
+        sig_meta.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        sig_elements.append(sig_meta)
+
+        # Signature image
+        signature_canvas_image = None
         if signature_info.get("signature_image"):
             image_source = normalize_signature_image(signature_info["signature_image"])
-            if image_source is None:
-                logger.warning("Unsupported signature image type: %s", type(signature_info["signature_image"]))
-            else:
+            if image_source:
                 image_source = sanitize_signature_image(image_source)
-                if image_source is None:
-                    logger.warning("Signature image skipped")
-                else:
-                    try:
-                        signature_canvas_image = ImageReader(image_source)
-                    except Exception as exc:
-                        logger.warning("Signature image skipped: %s", exc)
+            if image_source:
+                try:
+                    sig_img = Image(image_source, width=70 * mm, height=18 * mm)
+                    sig_img.hAlign = "LEFT"
+                    sig_elements.append(Spacer(1, 4))
+                    sig_elements.append(sig_img)
+                except Exception as exc:
+                    logger.warning("Signature image skipped: %s", exc)
 
-    def draw_signature(canvas, doc_ref):
+        sig_elements.append(Spacer(1, 6))
+        sig_elements.append(Paragraph(
+            "By signing, the employee confirms the salary amount and payment details as stated above.",
+            muted_style,
+        ))
+
+        elements.append(KeepTogether(sig_elements))
+
+    # ── Footer ──
+    elements.append(Spacer(1, 16))
+    elements.append(Paragraph(
+        "This document is an official salary statement issued by KarlinDent for payroll and audit purposes.",
+        muted_style,
+    ))
+
+    def draw_footer(canvas, doc_ref):
         canvas.setStrokeColor(colors.HexColor("#d1d5db"))
-        canvas.setLineWidth(0.7)
-        canvas.line(16 * mm, 16 * mm, 194 * mm, 16 * mm)
-        canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(colors.HexColor("#6b7280"))
-        canvas.drawString(16 * mm, 11 * mm, "Generated by KarlinDent payroll system")
-        canvas.drawRightString(194 * mm, 11 * mm, f"Page {doc_ref.page}")
-        canvas.setFillColor(colors.black)
-        block_width = 90 * mm
-        block_height = 38 * mm
-        block_x = A4[0] - doc.rightMargin - block_width
-        block_y = 20 * mm
+        canvas.setLineWidth(0.4)
+        canvas.line(16 * mm, 14 * mm, A4[0] - 16 * mm, 14 * mm)
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(colors.HexColor("#9ca3af"))
+        canvas.drawString(16 * mm, 10 * mm, "KarlinDent")
+        canvas.drawRightString(A4[0] - 16 * mm, 10 * mm, f"Page {doc_ref.page}")
 
-        canvas.setDash(4, 2)
-        canvas.setStrokeColor(colors.HexColor("#111827"))
-        canvas.setFillColor(colors.white)
-        canvas.setLineWidth(2)
-        canvas.rect(block_x, block_y, block_width, block_height, stroke=1, fill=1)
-        canvas.setDash()
-
-        canvas.setFillColor(colors.HexColor("#111827"))
-        canvas.rect(block_x, block_y + block_height - (8 * mm), block_width, 8 * mm, stroke=0, fill=1)
-        canvas.setFillColor(colors.white)
-        canvas.setFont("Helvetica-Bold", 10)
-        canvas.drawString(block_x + (3 * mm), block_y + block_height - (5.5 * mm), "DIGITAL SIGNATURE")
-
-        signer_name = "Not Signed"
-        signed_at = "Pending"
-        if signature_info:
-            signer_name = str(signature_info.get("signer_name") or "Not Signed")
-            signed_at = str(signature_info.get("signed_at") or "Pending")
-
-        canvas.setFillColor(colors.HexColor("#111827"))
-        canvas.setFont("Helvetica-Bold", 12)
-        canvas.drawString(block_x + (3 * mm), block_y + (16 * mm), f"Signer: {signer_name[:34]}")
-        canvas.drawString(block_x + (3 * mm), block_y + (10 * mm), f"Time: {signed_at[:34]}")
-
-        if signature_canvas_image:
-            try:
-                canvas.drawImage(
-                    signature_canvas_image,
-                    block_x + (3 * mm),
-                    block_y + (1.8 * mm),
-                    width=block_width - (6 * mm),
-                    height=8.8 * mm,
-                    preserveAspectRatio=True,
-                    mask="auto",
-                )
-            except Exception:
-                pass
-
-        if hasattr(canvas, "acroForm") and hasattr(canvas.acroForm, "textfield"):
-            canvas.acroForm.textfield(
-                name=f"signature_display_page_{doc_ref.page}",
-                x=block_x + (2 * mm),
-                y=block_y + (19 * mm),
-                width=block_width - (4 * mm),
-                height=7 * mm,
-                value=f"{signer_name} | {signed_at}",
-                borderStyle="solid",
-                borderWidth=0.5,
-                borderColor=colors.HexColor("#111827"),
-                fillColor=None,
-                textColor=colors.HexColor("#111827"),
-                fontName="Helvetica-Bold",
-                fontSize=12,
-                annotationFlags="print",
-                fieldFlags="readOnly",
-                forceBorder=True,
-            )
-        canvas.drawString(16 * mm, 6 * mm, "By signing, you confirm the salary amount and payment details.")
-
-    doc.build(elements, onFirstPage=draw_signature, onLaterPages=draw_signature)
+    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     pdf_data = buffer.getvalue()
     buffer.close()
     return pdf_data

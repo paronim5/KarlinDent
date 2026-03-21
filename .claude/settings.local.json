@@ -4,7 +4,8 @@
       "Bash(docker exec:*)",
       "Bash(MSYS_NO_PATHCONV=1 docker exec karlindent-db-1 ls /tmp/)",
       "Bash(docker restart:*)",
-      "Bash(MSYS_NO_PATHCONV=1 docker exec karlindent-db-1 psql -U policlinic -d policlinic -c \":*)"
+      "Bash(MSYS_NO_PATHCONV=1 docker exec karlindent-db-1 psql -U policlinic -d policlinic -c \":*)",
+      "Bash(find 'c:\\\\Users\\\\paron\\\\.a.paroniim\\\\Spse Jecna\\\\c4b\\\\TP\\\\KarlinDent\\\\frontend\\\\src' -type f -name *.json)"
     ]
   }
 }

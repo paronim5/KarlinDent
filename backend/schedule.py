@@ -555,10 +555,9 @@ def delete_shift(shift_id):
         if existing[3] is not None:
             return jsonify({"error": "paid_shift_locked"}), 409
             
-        cur.execute("DELETE FROM shifts WHERE id = %s", (shift_id,))
-        
         auth = get_authenticated_staff()
-        log_audit(cur, "DELETE", shift_id, {"deleted_record": existing}, user_id=auth["id"] if auth else None)
+        cur.execute("DELETE FROM schedule_audit_logs WHERE shift_id = %s", (shift_id,))
+        cur.execute("DELETE FROM shifts WHERE id = %s", (shift_id,))
         
         send_notification(existing[0], f"Shift cancelled: {existing[1]} - {existing[2]}")
 

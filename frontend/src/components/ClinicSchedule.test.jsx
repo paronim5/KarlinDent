@@ -13,20 +13,21 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key, vars = {}) => {
       const dict = {
-        "schedule.add_shift": "+ Add Shift",
+        "schedule.add_shift": "Add Shift",
         "schedule.modal.new_shift": "New Shift",
         "schedule.modal.schedule_staff": "SCHEDULE STAFF",
         "schedule.modal.note_placeholder": "Shift details...",
         "schedule.modal.save_shift": "Save Shift →",
-        "schedule.on_duty_today": "On Duty Today",
-        "schedule.no_on_duty_today": "No doctors on duty today",
-        "schedule.duty_item": `Dr. ${vars.lastName} – ${vars.role} ${vars.start}-${vars.end}`,
         "schedule.today": "Today",
         "schedule.calendar": "Calendar",
-        "schedule.stats.shifts": "Shifts",
-        "schedule.stats.visible_staff": "Visible staff",
-        "schedule.stats.on_duty_now": "On duty now",
-        "schedule.stats.roles": "Roles",
+        "schedule.section.doctors": "Doctors",
+        "schedule.section.staff": "Staff",
+        "schedule.available_doctors": "Available Doctors",
+        "schedule.available_staff": "Available Staff",
+        "schedule.all_scheduled": "Everyone is scheduled",
+        "schedule.empty_doctors": "No doctors scheduled for this day",
+        "schedule.empty_staff": "No staff scheduled for this day",
+        "schedule.empty_hint": "Drag staff from sidebar or click + to add",
         "schedule.modal.edit_shift": "Edit Shift",
         "schedule.modal.update_details": "UPDATE DETAILS",
         "schedule.modal.staff_member": "Staff Member",
@@ -46,13 +47,13 @@ vi.mock("react-i18next", () => ({
         "clinic.weekdays.sat": "Sa",
         "clinic.weekdays.sun": "Su"
       };
-      return dict[key] || key;
+      return dict[key] || vars.defaultValue || key;
     }
   })
 }));
 
 const mockStaff = [
-  { id: 1, first_name: "Alex", last_name: "Ivanov", role: "General Medicine", is_active: true },
+  { id: 1, first_name: "Alex", last_name: "Ivanov", role: "doctor", is_active: true },
   { id: 2, first_name: "Jane", last_name: "Smith", role: "assistant", is_active: true }
 ];
 
@@ -63,7 +64,8 @@ const mockShifts = [
     staff_id: 1,
     start: `${todayISO}T08:00:00`,
     end: `${todayISO}T16:00:00`,
-    note: "Day Shift"
+    note: "Day Shift",
+    status: "pending"
   }
 ];
 
@@ -90,13 +92,12 @@ describe("ClinicSchedule", () => {
 
   test("renders staff and shifts", async () => {
     render(<ClinicSchedule />);
-    
-    // Wait for staff to load
+
     await waitFor(() => {
       expect(mockApi.get).toHaveBeenCalledWith("/staff");
     });
 
-    // Wait for shifts to load
+    // Shift note should be visible for doctor tab (default)
     await waitFor(() => {
       expect(screen.getByText("Day Shift")).toBeInTheDocument();
     });
@@ -109,9 +110,10 @@ describe("ClinicSchedule", () => {
       expect(mockApi.get).toHaveBeenCalledWith("/staff");
     });
 
-    const btn = screen.getAllByText("+ Add Shift")[0];
+    // The header "Add Shift" button (btn-primary)
+    const btn = screen.getAllByRole("button", { name: /Add Shift/i })[0];
     fireEvent.click(btn);
-    
+
     await waitFor(() => {
       expect(screen.getAllByText("New Shift").length).toBeGreaterThan(0);
       expect(screen.getAllByText("SCHEDULE STAFF").length).toBeGreaterThan(0);
@@ -127,7 +129,7 @@ describe("ClinicSchedule", () => {
       expect(mockApi.get).toHaveBeenCalledWith("/staff");
     });
 
-    fireEvent.click(screen.getAllByText("+ Add Shift")[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Add Shift/i })[0]);
 
     await waitFor(() => {
       expect(screen.getAllByText("New Shift").length).toBeGreaterThan(0);
@@ -138,7 +140,7 @@ describe("ClinicSchedule", () => {
 
     const saveBtn = screen.getAllByText("Save Shift →")[0];
     fireEvent.click(saveBtn);
-    
+
     await waitFor(() => {
       expect(mockApi.post).toHaveBeenCalledWith("/schedule", expect.objectContaining({
         staff_id: 1,
@@ -147,15 +149,16 @@ describe("ClinicSchedule", () => {
     });
   });
 
-  test("lists on-duty doctor for today in sidebar", async () => {
+  test("shows doctor in schedule when they have a shift", async () => {
     render(<ClinicSchedule />);
 
     await waitFor(() => {
       expect(mockApi.get).toHaveBeenCalledWith("/staff");
     });
 
+    // Alex Ivanov is a doctor with a shift - should be visible in the doctors tab
     await waitFor(() => {
-      expect(screen.getByText("Dr. Ivanov – General Medicine 08:00-16:00")).toBeInTheDocument();
+      expect(screen.getAllByText("Alex Ivanov").length).toBeGreaterThan(0);
     });
   });
 });

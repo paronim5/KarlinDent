@@ -11,7 +11,8 @@ const emptyForm = {
   bio: "",
   role: "doctor",
   baseSalary: "",
-  commissionRate: ""
+  commissionRate: "",
+  weekendSalary: "200"
 };
 
 export default function StaffPage() {
@@ -87,7 +88,8 @@ export default function StaffPage() {
         commission_rate:
           form.role === "doctor" && form.commissionRate
             ? Number(form.commissionRate) / 100
-            : 0
+            : 0,
+        weekend_salary: form.role !== "doctor" && form.weekendSalary ? Number(form.weekendSalary) : 200
       };
       if (editingMember) {
         await api.put(`/staff/${editingMember.id}`, payload);
@@ -123,7 +125,8 @@ export default function StaffPage() {
       commissionRate:
         member.role === "doctor" && typeof member.commission_rate === "number"
           ? String((member.commission_rate * 100).toFixed(1))
-          : ""
+          : "",
+      weekendSalary: member.weekend_salary ? String(member.weekend_salary) : "200"
     });
     setEditingMember(member);
     setShowForm(true);
@@ -404,6 +407,12 @@ export default function StaffPage() {
                 <div className="form-label">{form.role === 'doctor' ? t("staff.form.commission_rate") : t("staff.form.base_hourly_salary")}</div>
                 <input className="form-input" type="number" value={form.role === 'doctor' ? form.commissionRate : form.baseSalary} onChange={(e) => setForm(p => form.role === 'doctor' ? {...p, commissionRate: e.target.value} : {...p, baseSalary: e.target.value})} />
               </div>
+              {form.role !== 'doctor' && (
+                <div>
+                  <div className="form-label">{t("staff.form.weekend_hourly_salary", { defaultValue: "Weekend Hourly Salary (CZK)" })}</div>
+                  <input className="form-input" type="number" value={form.weekendSalary} onChange={(e) => setForm(p => ({...p, weekendSalary: e.target.value}))} />
+                </div>
+              )}
               <div className="form-grid">
                 <div>
                   <div className="form-label">{t("staff.form.phone")}</div>

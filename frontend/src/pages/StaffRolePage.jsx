@@ -40,6 +40,35 @@ export default function StaffRolePage() {
   const [filterStatus, setFilterStatus] = useState("all"); // "all", "pending", "approved", "declined"
 
   const [editingId, setEditingId] = useState(null);
+  const [period, setPeriod] = useState("month");
+
+  const computeRange = (selectedPeriod) => {
+    const now = new Date();
+    let toDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    let fromDate = new Date(toDate);
+    if (selectedPeriod === "day") {
+      fromDate = new Date(toDate);
+    } else if (selectedPeriod === "week") {
+      fromDate = new Date(toDate);
+      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+    } else if (selectedPeriod === "month") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+      toDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth() + 1, 0));
+    } else if (selectedPeriod === "year") {
+      fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), 0, 1));
+      toDate = new Date(Date.UTC(toDate.getUTCFullYear(), 11, 31));
+    }
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    return { from: fmt(fromDate), to: fmt(toDate) };
+  };
+
+  const handlePeriodChange = (newPeriod) => {
+    setPeriod(newPeriod);
+    const r = computeRange(newPeriod);
+    setFrom(r.from);
+    setTo(r.to);
+    loadAll(r.from, r.to);
+  };
 
   const formatTime = (value) => {
     if (!value || typeof value !== "string") return "—";
@@ -182,10 +211,35 @@ export default function StaffRolePage() {
     [timesheets]
   );
 
+  const { weekdayHours, weekendHours } = useMemo(() => {
+    const unpaid = timesheets.filter((t) => t.status === "accepted" && !t.salary_payment_id);
+    let wd = 0, we = 0;
+    unpaid.forEach((t) => {
+      const d = new Date(t.start || t.work_date);
+      const day = d.getUTCDay(); // 0=Sun, 6=Sat
+      const h = Number(t.salary_hours ?? t.hours ?? 0);
+      if (day === 0 || day === 6) we += h;
+      else wd += h;
+    });
+    return { weekdayHours: wd, weekendHours: we };
+  }, [timesheets]);
+
+  const weekendRate = staff && staff.weekend_salary != null ? Number(staff.weekend_salary) : 200;
+
   const totalWages = useMemo(() => {
     const base = staff && staff.base_salary ? Number(staff.base_salary) : 0;
-    return Number((totalHours * base).toFixed(2));
-  }, [staff, totalHours]);
+    return Number((weekdayHours * base + weekendHours * weekendRate).toFixed(2));
+  }, [staff, weekdayHours, weekendHours, weekendRate]);
+
+  const allHoursInRange = useMemo(
+    () => timesheets.reduce((sum, t) => sum + Number(t.hours ?? 0), 0),
+    [timesheets]
+  );
+
+  const avgPerHour = useMemo(() => {
+    if (allHoursInRange <= 0) return 0;
+    return totalWages / allHoursInRange;
+  }, [totalWages, allHoursInRange]);
 
   const baseRate = staff && staff.base_salary ? Number(staff.base_salary) : 0;
 
@@ -382,10 +436,21 @@ export default function StaffRolePage() {
     <>
       {error && <div className="form-error">{t("staff_role.system_error", { error })}</div>}
       <div className="staff-role-toolbar">
-        <div className="doc-filter-controls">
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="form-input doc-filter-input" aria-label={t("income.date_range.from")} />
+        <div className="doc-filter-controls" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+          {["day", "week", "month", "year"].map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={`btn ${period === p ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => handlePeriodChange(p)}
+              style={{ textTransform: "capitalize" }}
+            >
+              {p}
+            </button>
+          ))}
+          <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPeriod("custom"); }} className="form-input doc-filter-input" aria-label={t("income.date_range.from")} />
           <span className="doc-filter-separator">-</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="form-input doc-filter-input" aria-label={t("income.date_range.to")} />
+          <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPeriod("custom"); }} className="form-input doc-filter-input" aria-label={t("income.date_range.to")} />
           <button type="button" className="btn btn-ghost" onClick={handlePeriodApply}>{t("staff_role.search")}</button>
           <button type="button" className="btn btn-primary" onClick={exportTimesheets}>{t("common.export_csv")}</button>
         </div>
@@ -402,16 +467,32 @@ export default function StaffRolePage() {
             </div>
             <div style={{ display: "grid", gap: "8px", padding: "12px" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>{t("outcome.salary_panel.total_hours")}</span>
-                <span className="mono">{totalHours.toFixed(2)}</span>
+                <span>Weekday Hours (unpaid)</span>
+                <span className="mono">{weekdayHours.toFixed(2)}h</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Weekend Hours (unpaid)</span>
+                <span className="mono">{weekendHours.toFixed(2)}h</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span>{t("outcome.salary_panel.base_rate")}</span>
-                <span className="mono">{baseRate.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                <span className="mono">{baseRate.toLocaleString(undefined, { style: "currency", currency: "CZK" })}/h</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Weekend Rate</span>
+                <span className="mono">{weekendRate.toLocaleString(undefined, { style: "currency", currency: "CZK" })}/h</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "600" }}>
                 <span>{t("outcome.salary_panel.calculated_salary")}</span>
                 <span className="mono">{totalWages.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: "8px", marginTop: "4px" }}>
+                <span>Total Hours (all shifts)</span>
+                <span className="mono">{allHoursInRange.toFixed(2)}h</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Avg Salary / Hour</span>
+                <span className="mono">{avgPerHour.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
                 <button type="button" className="btn btn-primary" onClick={handleRecordSalary} disabled={payingSalary}>

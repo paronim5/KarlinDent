@@ -34,6 +34,24 @@ def validate_salary(value: Any) -> float:
     return round(amount, 2)
 
 
+def ensure_weekend_salary_column(conn) -> None:
+    if "staff_weekend_salary" in _VERIFIED_SCHEMAS:
+        return
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'staff' AND column_name = 'weekend_salary'
+        """
+    )
+    if cur.fetchone():
+        _VERIFIED_SCHEMAS.add("staff_weekend_salary")
+        return
+    cur.execute("ALTER TABLE staff ADD COLUMN IF NOT EXISTS weekend_salary NUMERIC(12, 2) NOT NULL DEFAULT 200")
+    conn.commit()
+    _VERIFIED_SCHEMAS.add("staff_weekend_salary")
+
+
 def validate_medicine_name(value: Any) -> str:
     name = str(value or "").strip()
     if len(name) < 2 or len(name) > 150:
@@ -1142,9 +1160,11 @@ def get_salary_estimate(staff_id: int):
     conn = get_connection()
     try:
         cur = conn.cursor()
+        ensure_weekend_salary_column(conn)
         cur.execute(
             """
-            SELECT s.base_salary, s.commission_rate, s.total_revenue, r.name, s.last_paid_at
+            SELECT s.base_salary, s.commission_rate, s.total_revenue, r.name, s.last_paid_at,
+                   COALESCE(s.weekend_salary, 200)
             FROM staff s
             JOIN staff_roles r ON r.id = s.role_id
             WHERE s.id = %s
@@ -1161,6 +1181,7 @@ def get_salary_estimate(staff_id: int):
         role = row[3]
         last_paid_at_raw = row[4]
         last_paid_at = row[4].isoformat() if row[4] else None
+        weekend_salary = float(row[5])
 
         try:
             period = resolve_report_period(role, last_paid_at_raw, from_param, to_param)
@@ -1238,16 +1259,24 @@ def get_salary_estimate(staff_id: int):
             commission_metrics = compute_doctor_commission_metrics(0.0, 0.0, commission_rate)
             period_start = datetime.combine(start_date, time.min)
             period_end = datetime.combine(end_date + timedelta(days=1), time.min)
+            weekday_hours = 0.0
+            weekend_hours = 0.0
             try:
                 cur.execute(
                     """
-                    SELECT COALESCE(
-                        SUM(
-                            (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
-                            * (COALESCE(completion_percent, 100) / 100.0)
-                        ),
-                        0
-                    )
+                    SELECT
+                        COALESCE(SUM(
+                            CASE WHEN EXTRACT(ISODOW FROM start_time) < 6 THEN
+                                (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                * (COALESCE(completion_percent, 100) / 100.0)
+                            ELSE 0 END
+                        ), 0),
+                        COALESCE(SUM(
+                            CASE WHEN EXTRACT(ISODOW FROM start_time) >= 6 THEN
+                                (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                * (COALESCE(completion_percent, 100) / 100.0)
+                            ELSE 0 END
+                        ), 0)
                     FROM shifts
                     WHERE staff_id = %s
                       AND start_time >= %s
@@ -1259,10 +1288,12 @@ def get_salary_estimate(staff_id: int):
                 )
             except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 conn.rollback()
-                shift_weighted_hours = 0.0
             else:
-                shift_weighted_hours = float(cur.fetchone()[0] or 0)
-            commission_part = round(shift_weighted_hours * base_salary, 2)
+                row_hours = cur.fetchone()
+                weekday_hours = float(row_hours[0] or 0)
+                weekend_hours = float(row_hours[1] or 0)
+            shift_weighted_hours = weekday_hours + weekend_hours
+            commission_part = round(weekday_hours * base_salary + weekend_hours * weekend_salary, 2)
 
         cur.execute(
             """
@@ -1278,6 +1309,7 @@ def get_salary_estimate(staff_id: int):
 
         return jsonify({
             "base_salary": round(base_salary, 2),
+            "weekend_salary": round(weekend_salary, 2),
             "commission_rate": round(commission_rate, 4),
             "total_revenue": round(total_revenue, 2),
             "period": {"from": start_date.isoformat(), "to": end_date.isoformat()},
@@ -1286,6 +1318,8 @@ def get_salary_estimate(staff_id: int):
             "commission_base_income": commission_metrics["commission_base_income"],
             "negative_balance": commission_metrics["negative_balance"],
             "commission_part": round(commission_part, 2),
+            "weekday_hours": round(weekday_hours, 2) if role != "doctor" else 0,
+            "weekend_hours": round(weekend_hours, 2) if role != "doctor" else 0,
             "adjustments": round(adjustments, 2),
             "estimated_total": round(estimated_total, 2),
             "adjusted_total": round(estimated_total, 2),
@@ -1330,9 +1364,11 @@ def pay_salary():
         cur = conn.cursor()
         
         # Verify staff exists
+        ensure_weekend_salary_column(conn)
         cur.execute(
             """
-            SELECT s.id, s.base_salary, s.commission_rate, s.total_revenue, r.name, s.first_name, s.last_name, s.last_paid_at
+            SELECT s.id, s.base_salary, s.commission_rate, s.total_revenue, r.name, s.first_name, s.last_name, s.last_paid_at,
+                   COALESCE(s.weekend_salary, 200)
             FROM staff s
             JOIN staff_roles r ON r.id = s.role_id
             WHERE s.id = %s
@@ -1342,12 +1378,13 @@ def pay_salary():
         staff_row = cur.fetchone()
         if not staff_row:
             return jsonify({"error": "staff_not_found"}), 404
-            
+
         base_salary = float(staff_row[1] or 0)
         commission_rate = float(staff_row[2] or 0)
         role_name = staff_row[4]
         staff_full_name = " ".join(filter(None, [staff_row[5], staff_row[6]])).strip()
         last_paid_at = staff_row[7]
+        weekend_salary = float(staff_row[8])
 
         from_param = data.get("from")
         to_param = data.get("to")
@@ -1399,19 +1436,27 @@ def pay_salary():
             commission_metrics = compute_doctor_commission_metrics(total_income, total_lab_fees, commission_rate)
             commission_part = commission_metrics["total_commission"]
         else:
+            weekday_hours = 0.0
+            weekend_hours = 0.0
             try:
                 ensure_shifts_salary_payment_column(conn)
                 period_start = datetime.combine(start_date, time.min)
                 period_end = datetime.combine(end_date + timedelta(days=1), time.min)
                 cur.execute(
                     """
-                    SELECT COALESCE(
-                        SUM(
-                            (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
-                            * (COALESCE(completion_percent, 100) / 100.0)
-                        ),
-                        0
-                    )
+                    SELECT
+                        COALESCE(SUM(
+                            CASE WHEN EXTRACT(ISODOW FROM start_time) < 6 THEN
+                                (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                * (COALESCE(completion_percent, 100) / 100.0)
+                            ELSE 0 END
+                        ), 0),
+                        COALESCE(SUM(
+                            CASE WHEN EXTRACT(ISODOW FROM start_time) >= 6 THEN
+                                (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                * (COALESCE(completion_percent, 100) / 100.0)
+                            ELSE 0 END
+                        ), 0)
                     FROM shifts
                     WHERE staff_id = %s
                       AND start_time >= %s
@@ -1423,13 +1468,15 @@ def pay_salary():
                 )
             except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 conn.rollback()
-                shift_weighted_hours = 0.0
             else:
-                shift_weighted_hours = float(cur.fetchone()[0] or 0)
+                row_hours = cur.fetchone()
+                weekday_hours = float(row_hours[0] or 0)
+                weekend_hours = float(row_hours[1] or 0)
+            shift_weighted_hours = weekday_hours + weekend_hours
 
             total_income = 0.0
             total_lab_fees = 0.0
-            commission_part = round(shift_weighted_hours * base_salary, 2)
+            commission_part = round(weekday_hours * base_salary + weekend_hours * weekend_salary, 2)
             commission_metrics = compute_doctor_commission_metrics(0.0, 0.0, commission_rate)
 
         cur.execute(
@@ -1777,6 +1824,7 @@ def list_staff():
                 "email": row[4],
                 "bio": row[5],
                 "base_salary": base_salary,
+                "weekend_salary": 200,
                 "commission_rate": commission_rate,
                 "last_paid_at": last_paid_at,
                 "total_revenue": total_revenue,
@@ -1786,6 +1834,26 @@ def list_staff():
                 "role": role_name,
             }
         )
+
+    # Enrich with weekend_salary from DB if available
+    try:
+        conn2 = get_connection()
+        try:
+            cur2 = conn2.cursor()
+            ensure_weekend_salary_column(conn2)
+            staff_ids = [item["id"] for item in items]
+            if staff_ids:
+                cur2.execute(
+                    "SELECT id, COALESCE(weekend_salary, 200) FROM staff WHERE id = ANY(%s)",
+                    (staff_ids,),
+                )
+                ws_map = {r[0]: float(r[1]) for r in cur2.fetchall()}
+                for item in items:
+                    item["weekend_salary"] = ws_map.get(item["id"], 200)
+        finally:
+            release_connection(conn2)
+    except Exception:
+        pass
 
     return jsonify(items)
 
@@ -2293,10 +2361,12 @@ def create_staff():
         return jsonify({"error": "invalid_staff"}), 400
 
     base_salary_value = data.get("base_salary", 0)
+    weekend_salary_value = data.get("weekend_salary", 200)
     commission_rate_value = data.get("commission_rate", 0)
 
     try:
         base_salary = validate_salary(base_salary_value)
+        weekend_salary = validate_salary(weekend_salary_value)
         commission_rate = float(commission_rate_value or 0)
         if commission_rate < 0 or commission_rate > 1:
             raise ValueError("invalid_commission_rate")
@@ -2308,6 +2378,7 @@ def create_staff():
     conn = get_connection()
     try:
         cur = conn.cursor()
+        ensure_weekend_salary_column(conn)
         role_id = get_role_id(conn, role_name)
         if not role_id:
             return jsonify({"error": "invalid_role"}), 400
@@ -2315,16 +2386,18 @@ def create_staff():
         if role_name == "doctor":
             base_salary_db = 0
             commission_rate_db = commission_rate
+            weekend_salary_db = 0
         else:
             base_salary_db = base_salary
             commission_rate_db = 0
+            weekend_salary_db = weekend_salary
 
         try:
             cur.execute(
                 """
                 INSERT INTO staff
-                    (role_id, first_name, last_name, phone, email, bio, base_salary, commission_rate)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (role_id, first_name, last_name, phone, email, bio, base_salary, weekend_salary, commission_rate)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -2335,6 +2408,7 @@ def create_staff():
                     email,
                     bio,
                     base_salary_db,
+                    weekend_salary_db,
                     commission_rate_db,
                 ),
             )
@@ -2384,10 +2458,12 @@ def update_staff(staff_id: int):
         return jsonify({"error": "invalid_staff"}), 400
 
     base_salary_value = data.get("base_salary", 0)
+    weekend_salary_value = data.get("weekend_salary", 200)
     commission_rate_value = data.get("commission_rate", 0)
 
     try:
         base_salary = validate_salary(base_salary_value)
+        weekend_salary = validate_salary(weekend_salary_value)
         commission_rate = float(commission_rate_value or 0)
         if commission_rate < 0 or commission_rate > 1:
             raise ValueError("invalid_commission_rate")
@@ -2399,6 +2475,7 @@ def update_staff(staff_id: int):
     conn = get_connection()
     try:
         cur = conn.cursor()
+        ensure_weekend_salary_column(conn)
         role_id = get_role_id(conn, role_name)
         if not role_id:
             return jsonify({"error": "invalid_role"}), 400
@@ -2406,9 +2483,11 @@ def update_staff(staff_id: int):
         if role_name == "doctor":
             base_salary_db = 0
             commission_rate_db = commission_rate
+            weekend_salary_db = 0
         else:
             base_salary_db = base_salary
             commission_rate_db = 0
+            weekend_salary_db = weekend_salary
 
         try:
             cur.execute(
@@ -2421,6 +2500,7 @@ def update_staff(staff_id: int):
                     email = %s,
                     bio = %s,
                     base_salary = %s,
+                    weekend_salary = %s,
                     commission_rate = %s,
                     updated_at = NOW()
                 WHERE id = %s
@@ -2433,6 +2513,7 @@ def update_staff(staff_id: int):
                     email,
                     bio,
                     base_salary_db,
+                    weekend_salary_db,
                     commission_rate_db,
                     staff_id,
                 ),

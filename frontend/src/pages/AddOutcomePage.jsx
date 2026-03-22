@@ -230,12 +230,19 @@ export default function AddOutcomePage() {
             salaryRange.from + 'T00:00:00Z'
           )}&end=${encodeURIComponent(salaryRange.to + 'T23:59:59Z')}&status=accepted&unpaid=true`
         );
-        const totalHours = ts.reduce((sum, item) => {
-          return sum + Number(item.salary_hours ?? item.hours ?? 0);
-        }, 0);
+        let weekdayHrs = 0, weekendHrs = 0;
+        ts.forEach((item) => {
+          const h = Number(item.salary_hours ?? item.hours ?? 0);
+          const d = new Date(item.start || item.work_date);
+          const day = d.getUTCDay(); // 0=Sun, 6=Sat
+          if (day === 0 || day === 6) weekendHrs += h;
+          else weekdayHrs += h;
+        });
+        const totalHours = weekdayHrs + weekendHrs;
         const baseRate = toNumber(staffMember.base_salary, 0);
-        const amount = Number((totalHours * baseRate).toFixed(2));
-        setTimesheetSummary({ totalHours, baseRate, amount });
+        const wkndRate = toNumber(staffMember.weekend_salary ?? 200, 200);
+        const amount = Number((weekdayHrs * baseRate + weekendHrs * wkndRate).toFixed(2));
+        setTimesheetSummary({ totalHours, weekdayHours: weekdayHrs, weekendHours: weekendHrs, baseRate, weekendRate: wkndRate, amount });
         if (!hasManualSalaryAmount) {
           if (totalHours > 0) {
             setSalaryForm((p) => ({ ...p, amount: amount.toFixed(2) }));
@@ -757,12 +764,20 @@ export default function AddOutcomePage() {
                   <span>{salaryRange.from} → {salaryRange.to}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.total_hours")}:</span>
-                  <span>{timesheetSummary.totalHours.toFixed(2)}</span>
+                  <span>Weekday Hours:</span>
+                  <span>{(timesheetSummary.weekdayHours ?? 0).toFixed(2)}h</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                  <span>Weekend Hours:</span>
+                  <span>{(timesheetSummary.weekendHours ?? 0).toFixed(2)}h</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
                   <span>{t("outcome.salary_panel.base_rate")}:</span>
-                  <span>{formatNumber(timesheetSummary.baseRate, { minimumFractionDigits: 2 })}</span>
+                  <span>{formatNumber(timesheetSummary.baseRate, { minimumFractionDigits: 2 })}/h</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                  <span>Weekend Rate:</span>
+                  <span>{formatNumber(timesheetSummary.weekendRate ?? 200, { minimumFractionDigits: 2 })}/h</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '600', borderTop: '1px solid var(--border)', paddingTop: '4px', marginTop: '4px' }}>
                   <span>{t("outcome.salary_panel.calculated_salary")}:</span>

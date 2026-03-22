@@ -17,6 +17,10 @@ services:
       - ./migrations/006_add_time_columns.sql:/docker-entrypoint-initdb.d/06_add_time_columns.sql:ro
       - ./migrations/007_add_salary_links.sql:/docker-entrypoint-initdb.d/07_add_salary_links.sql:ro
       - ./migrations/008_add_staff_roles.sql:/docker-entrypoint-initdb.d/08_add_staff_roles.sql:ro
+      - ./migrations/009_add_schedule_module.sql:/docker-entrypoint-initdb.d/09_add_schedule_module.sql:ro
+      - ./migrations/010_add_income_commission_indexes.sql:/docker-entrypoint-initdb.d/10_add_income_commission_indexes.sql:ro
+      - ./migrations/011_add_staff_documents.sql:/docker-entrypoint-initdb.d/11_add_staff_documents.sql:ro
+      - ./migrations/012_shift_status_and_salary_enhancements.sql:/docker-entrypoint-initdb.d/12_shift_status_and_salary_enhancements.sql:ro
 
   backend:
     build: ./backend

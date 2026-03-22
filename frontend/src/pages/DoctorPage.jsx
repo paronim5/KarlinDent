@@ -37,6 +37,8 @@ export default function DoctorPage() {
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
   const [documentFilter, setDocumentFilter] = useState({ from: "", to: "" });
+  const [shifts, setShifts] = useState([]);
+  const [shiftsLoading, setShiftsLoading] = useState(false);
 
   const chartOptions = {
     responsive: true,
@@ -224,6 +226,21 @@ export default function DoctorPage() {
     }
   };
 
+  const loadShifts = async (rangeFrom, rangeTo) => {
+    if (!rangeFrom || !rangeTo) return;
+    setShiftsLoading(true);
+    try {
+      const data = await api.get(
+        `/schedule?staff_id=${id}&start=${encodeURIComponent(rangeFrom + "T00:00:00Z")}&end=${encodeURIComponent(rangeTo + "T23:59:59Z")}`
+      );
+      setShifts(Array.isArray(data) ? data : []);
+    } catch {
+      setShifts([]);
+    } finally {
+      setShiftsLoading(false);
+    }
+  };
+
   const downloadDocument = async (documentId, fallbackName) => {
     try {
       const headers = {};
@@ -278,6 +295,12 @@ export default function DoctorPage() {
     if (!range.from && !range.to) return;
     setDocumentFilter({ from: range.from, to: range.to });
   }, [range.from, range.to]);
+
+  useEffect(() => {
+    if (range.from && range.to) {
+      loadShifts(range.from, range.to);
+    }
+  }, [id, range.from, range.to]);
 
   useEffect(() => {
     if (range.from && range.to) {
@@ -572,6 +595,24 @@ export default function DoctorPage() {
   const sinceLastPayment = Number(commissionStats?.since_last_payment?.total_commission || 0);
   const sinceLastPaymentDate = commissionStats?.since_last_payment?.from_date || null;
 
+  const workHours = useMemo(() => {
+    return shifts.reduce((sum, s) => {
+      const start = new Date(s.start);
+      const end = new Date(s.end);
+      return sum + Math.max(0, (end - start) / (1000 * 60 * 60));
+    }, 0);
+  }, [shifts]);
+
+  const avgIncomePerHour = useMemo(() => {
+    if (!workHours || workHours <= 0) return 0;
+    return Number(currentTotals?.total_income || 0) / workHours;
+  }, [workHours, currentTotals]);
+
+  const avgCommissionPerHour = useMemo(() => {
+    if (!workHours || workHours <= 0) return 0;
+    return Number(currentTotals?.total_commission || 0) / workHours;
+  }, [workHours, currentTotals]);
+
   return (
     <>
       {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
@@ -652,6 +693,27 @@ export default function DoctorPage() {
               <div className="stat-label">Commission Rate</div>
               <div className="stat-value">
                 {commissionStatsLoading ? "—" : `${((commissionStats?.doctor?.commission_rate || 0) * 100).toFixed(2)}%`}
+              </div>
+            </div>
+            <div className="stat-card s-blue">
+              <div className="stat-icon">⏱</div>
+              <div className="stat-label">Hours Worked</div>
+              <div className="stat-value">
+                {shiftsLoading ? "—" : workHours.toFixed(1) + "h"}
+              </div>
+            </div>
+            <div className="stat-card s-orange">
+              <div className="stat-icon">⌀</div>
+              <div className="stat-label">Avg Income/Hour</div>
+              <div className="stat-value">
+                {shiftsLoading || commissionStatsLoading ? "—" : formatCurrency(avgIncomePerHour)}
+              </div>
+            </div>
+            <div className="stat-card s-green">
+              <div className="stat-icon">⌀</div>
+              <div className="stat-label">Avg Commission/Hour</div>
+              <div className="stat-value">
+                {shiftsLoading || commissionStatsLoading ? "—" : formatCurrency(avgCommissionPerHour)}
               </div>
             </div>
           </div>

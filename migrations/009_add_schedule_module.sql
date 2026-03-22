@@ -1,7 +1,7 @@
 -- ============================================================
 -- SHIFTS
 -- ============================================================
-CREATE TABLE shifts (
+CREATE TABLE IF NOT EXISTS shifts (
     id              SERIAL PRIMARY KEY,
     staff_id        INT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
     start_time      TIMESTAMPTZ NOT NULL,
@@ -12,13 +12,13 @@ CREATE TABLE shifts (
 );
 
 -- Index for faster range queries
-CREATE INDEX idx_shifts_time ON shifts (start_time, end_time);
-CREATE INDEX idx_shifts_staff ON shifts (staff_id);
+CREATE INDEX IF NOT EXISTS idx_shifts_time ON shifts (start_time, end_time);
+CREATE INDEX IF NOT EXISTS idx_shifts_staff ON shifts (staff_id);
 
 -- ============================================================
 -- SCHEDULE AUDIT LOGS
 -- ============================================================
-CREATE TABLE schedule_audit_logs (
+CREATE TABLE IF NOT EXISTS schedule_audit_logs (
     id              SERIAL PRIMARY KEY,
     shift_id        INT,  -- Keep ID even if shift is deleted, or set NULL
     action          VARCHAR(20) NOT NULL, -- 'CREATE', 'UPDATE', 'DELETE'
@@ -27,4 +27,4 @@ CREATE TABLE schedule_audit_logs (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_schedule_audit_logs_shift ON schedule_audit_logs (shift_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_audit_logs_shift ON schedule_audit_logs (shift_id);

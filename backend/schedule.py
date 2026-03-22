@@ -161,6 +161,9 @@ def ensure_schedule_schema(cur):
     cur.execute("UPDATE shifts SET completion_percent = 100 WHERE completion_percent IS NULL")
     cur.execute("UPDATE shifts SET pay_multiplier = 1.0 WHERE pay_multiplier IS NULL OR pay_multiplier <= 0")
 
+    # Auto-accept past shifts that got default 'pending' status from migration
+    cur.execute("UPDATE shifts SET status = 'accepted' WHERE status = 'pending' AND end_time < NOW()")
+
     cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_time ON shifts (start_time, end_time)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_staff ON shifts (staff_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_shifts_status ON shifts (status)")
@@ -179,6 +182,68 @@ def ensure_schedule_schema(cur):
     )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_schedule_audit_shift ON schedule_audit_logs(shift_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_schedule_audit_action ON schedule_audit_logs(action)")
+
+    # Widen action column from VARCHAR(20) to VARCHAR(40) for existing databases
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'schedule_audit_logs'
+                AND column_name = 'action'
+                AND character_maximum_length < 40
+            ) THEN
+                ALTER TABLE schedule_audit_logs ALTER COLUMN action TYPE VARCHAR(40);
+            END IF;
+        END $$;
+    """)
+
+    # Fix FK constraint from RESTRICT to ON DELETE SET NULL for existing databases
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE constraint_name = 'schedule_audit_logs_shift_id_fkey'
+                AND table_name = 'schedule_audit_logs'
+            ) THEN
+                -- Check if current FK is not ON DELETE SET NULL
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.referential_constraints
+                    WHERE constraint_name = 'schedule_audit_logs_shift_id_fkey'
+                    AND delete_rule = 'SET NULL'
+                ) THEN
+                    ALTER TABLE schedule_audit_logs DROP CONSTRAINT schedule_audit_logs_shift_id_fkey;
+                    ALTER TABLE schedule_audit_logs
+                        ADD CONSTRAINT schedule_audit_logs_shift_id_fkey
+                        FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;
+                END IF;
+            END IF;
+        END $$;
+    """)
+
+    # Fix details column from TEXT to JSONB for existing databases
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'schedule_audit_logs'
+                AND column_name = 'details'
+                AND data_type = 'text'
+            ) THEN
+                ALTER TABLE schedule_audit_logs
+                    ALTER COLUMN details TYPE JSONB
+                    USING CASE
+                        WHEN details IS NULL OR details = '' THEN '{}'::jsonb
+                        ELSE details::jsonb
+                    END;
+                ALTER TABLE schedule_audit_logs
+                    ALTER COLUMN details SET DEFAULT '{}'::jsonb;
+            END IF;
+        END $$;
+    """)
+
     cur.connection.commit()
     _VERIFIED_SCHEMAS.add("schedule_shifts_v2")
 

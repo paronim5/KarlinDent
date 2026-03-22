@@ -42,6 +42,7 @@ CREATE TABLE staff (
     bio                 TEXT,
     -- Salary info
     base_salary         NUMERIC(12, 2) NOT NULL DEFAULT 0,  -- base or hourly rate for non-doctors
+    weekend_salary      NUMERIC(12, 2) NOT NULL DEFAULT 200, -- weekend hourly rate for non-doctors
     commission_rate     NUMERIC(5, 4) NOT NULL DEFAULT 0,   -- doctors: share of income (0.30 = 30%)
     last_paid_at        DATE,                                -- date of last salary payment
     -- Doctors only: cumulative revenue brought to clinic

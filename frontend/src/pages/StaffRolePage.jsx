@@ -86,15 +86,16 @@ export default function StaffRolePage() {
       setStaff(me || null);
       
       // Calculate hours for each shift
+      const f2 = (n) => String(n).padStart(2, '0');
       const shiftsWithHours = ts.map(s => {
         const start = new Date(s.start);
         const end = new Date(s.end);
         const hours = (end - start) / (1000 * 60 * 60);
         return {
           ...s,
-          work_date: s.start.slice(0, 10),
-          start_time: s.start.slice(11, 16),
-          end_time: s.end.slice(11, 16),
+          work_date: `${start.getFullYear()}-${f2(start.getMonth() + 1)}-${f2(start.getDate())}`,
+          start_time: `${f2(start.getHours())}:${f2(start.getMinutes())}`,
+          end_time: `${f2(end.getHours())}:${f2(end.getMinutes())}`,
           hours: Number(hours.toFixed(2))
         };
       });
@@ -202,6 +203,16 @@ export default function StaffRolePage() {
     }, 30000);
     return () => window.clearInterval(timer);
   }, [id, from, to]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (event?.detail?.period) {
+        handlePeriodChange(event.detail.period);
+      }
+    };
+    window.addEventListener("periodChanged", handler);
+    return () => window.removeEventListener("periodChanged", handler);
+  }, []);
 
   const totalHours = useMemo(
     () =>
@@ -437,17 +448,6 @@ export default function StaffRolePage() {
       {error && <div className="form-error">{t("staff_role.system_error", { error })}</div>}
       <div className="staff-role-toolbar">
         <div className="doc-filter-controls" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-          {["day", "week", "month", "year"].map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={`btn ${period === p ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => handlePeriodChange(p)}
-              style={{ textTransform: "capitalize" }}
-            >
-              {p}
-            </button>
-          ))}
           <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPeriod("custom"); }} className="form-input doc-filter-input" aria-label={t("income.date_range.from")} />
           <span className="doc-filter-separator">-</span>
           <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPeriod("custom"); }} className="form-input doc-filter-input" aria-label={t("income.date_range.to")} />

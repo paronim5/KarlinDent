@@ -1771,7 +1771,9 @@ def list_staff():
                                SUM(
                                    (EXTRACT(EPOCH FROM (sh.end_time - sh.start_time)) / 3600.0)
                                    * (COALESCE(sh.completion_percent, 100) / 100.0)
-                                   * s.base_salary
+                                   * CASE WHEN EXTRACT(ISODOW FROM sh.start_time) >= 6
+                                          THEN COALESCE(s.weekend_salary, 200)
+                                          ELSE s.base_salary END
                                ),
                                0
                            )

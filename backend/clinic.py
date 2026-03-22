@@ -328,9 +328,9 @@ def dashboard():
         cur.execute(
             """
             SELECT c.name, COALESCE(SUM(o.amount), 0) AS total
-            FROM outcome_records o
-            JOIN outcome_categories c ON c.id = o.category_id
-            WHERE o.expense_date BETWEEN %s AND %s
+            FROM outcome_categories c
+            LEFT JOIN outcome_records o ON o.category_id = c.id
+                AND o.expense_date BETWEEN %s AND %s
             GROUP BY c.name
             ORDER BY total DESC
             """,
@@ -367,8 +367,7 @@ def dashboard():
             FROM income_records
             WHERE service_date BETWEEN %s AND %s
             GROUP BY dow
-            ORDER BY COUNT(*) DESC
-            LIMIT 3
+            ORDER BY dow ASC
             """,
             (start, end),
         )
@@ -871,13 +870,13 @@ def get_dashboard_data():
             for row in cur.fetchall()
         ]
         
-        # Expense Analysis
+        # Expense Analysis — LEFT JOIN so all categories appear even with 0
         cur.execute(
             """
             SELECT c.name, COALESCE(SUM(o.amount), 0) AS total
-            FROM outcome_records o
-            JOIN outcome_categories c ON c.id = o.category_id
-            WHERE o.expense_date BETWEEN %s AND %s
+            FROM outcome_categories c
+            LEFT JOIN outcome_records o ON o.category_id = c.id
+                AND o.expense_date BETWEEN %s AND %s
             GROUP BY c.name
             ORDER BY total DESC
             """,
@@ -1053,8 +1052,7 @@ def get_dashboard_data():
             FROM income_records
             WHERE service_date BETWEEN %s AND %s
             GROUP BY dow
-            ORDER BY COUNT(*) DESC
-            LIMIT 3
+            ORDER BY dow ASC
             """,
             (start_date, end_date),
         )

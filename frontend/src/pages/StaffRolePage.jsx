@@ -367,7 +367,7 @@ export default function StaffRolePage() {
 
   const handleBulkApprove = async () => {
     const pastPendingShiftIds = timesheets
-      .filter(t => t.status === 'pending' && new Date(t.end) < new Date())
+      .filter(t => t.status === 'pending' && t.work_date <= new Date().toISOString().slice(0, 10))
       .map(t => t.id);
 
     if (pastPendingShiftIds.length === 0) {
@@ -698,7 +698,8 @@ export default function StaffRolePage() {
                     <tr><td colSpan="6" className="empty-state">No pending or active shifts found.</td></tr>
                   ) : (
                     nonAcceptedTimesheets.map((entry) => {
-                      const isPast = new Date(entry.end) < new Date();
+                      const today = new Date().toISOString().slice(0, 10);
+                      const isPast = entry.work_date <= today;
                       return (
                         <tr key={entry.id} className="shift-row-transition" style={{ opacity: entry.status === 'pending' ? 0.6 : 1 }}>
                           <td className="mono">{entry.work_date}</td>

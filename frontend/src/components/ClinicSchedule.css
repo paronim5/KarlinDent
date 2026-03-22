@@ -1,11 +1,11 @@
 .clinic-schedule-wrapper {
-  --cs-bg: var(--bg, #0b0c0e);
-  --cs-surface: var(--surface, #111318);
-  --cs-card: var(--card, #161a22);
-  --cs-border: var(--border, #1f2535);
-  --cs-border2: var(--border2, #252d3d);
-  --cs-accent: var(--accent, #f97316);
-  --cs-accent2: var(--accent2, #fb923c);
+  --cs-bg: var(--bg, #000000);
+  --cs-surface: var(--surface, #0d0d0f);
+  --cs-card: var(--card, #1c1c1e);
+  --cs-border: var(--border, rgba(255,255,255,.08));
+  --cs-border2: var(--border, rgba(255,255,255,.12));
+  --cs-accent: var(--accent, #0a84ff);
+  --cs-accent2: var(--accent2, #409cff);
   --cs-green: var(--green, #22c55e);
   --cs-red: var(--red, #ef4444);
   --cs-blue: var(--blue, #3b82f6);

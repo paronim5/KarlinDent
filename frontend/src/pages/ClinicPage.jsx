@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Line } from "react-chartjs-2";
+import { Line, Bar } from "react-chartjs-2";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
@@ -8,12 +8,13 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
   Tooltip,
   Legend
 } from "chart.js";
 import { useApi } from "../api/client.js";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
 
 export default function ClinicPage() {
   const { t } = useTranslation();
@@ -309,19 +310,28 @@ export default function ClinicPage() {
                           <div className="panel-meta">{t("clinic.expenses.salary_ratio")}: {dashboard.expense_analysis.salary_ratio}%</div>
                       </div>
                   </div>
-                  <div style={{ padding: '20px' }}>
-                      <div className="chart-bars" style={{ height: '150px' }}>
-                          {dashboard.expense_analysis.by_category.map((c, idx) => (
-                              <div className="bar-col" key={idx} style={{ flex: 1 }}>
-                                  <div 
-                                      className="bar bar-expense" 
-                                      style={{ height: `${(c.total / (Math.max(...dashboard.expense_analysis.by_category.map(x=>x.total)) || 1)) * 100}%` }}
-                                      title={formatCurrency(c.total)}
-                                  ></div>
-                                  <div className="bar-label" style={{ fontSize: '10px', marginTop: '4px' }}>{c.category}</div>
-                              </div>
-                          ))}
-                      </div>
+                  <div style={{ padding: '20px', height: '200px' }}>
+                      <Bar
+                          data={{
+                              labels: dashboard.expense_analysis.by_category.map(c => c.category),
+                              datasets: [{
+                                  data: dashboard.expense_analysis.by_category.map(c => c.total),
+                                  backgroundColor: 'rgba(255, 55, 95, 0.6)',
+                                  borderColor: 'rgba(255, 55, 95, 1)',
+                                  borderWidth: 1,
+                                  borderRadius: 6,
+                              }]
+                          }}
+                          options={{
+                              responsive: true,
+                              maintainAspectRatio: false,
+                              plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } } },
+                              scales: {
+                                  x: { ticks: { color: 'var(--text-secondary)', font: { size: 10 } }, grid: { display: false } },
+                                  y: { beginAtZero: true, ticks: { color: 'var(--text-secondary)', font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.1)' } }
+                              }
+                          }}
+                      />
                   </div>
               </div>
 
@@ -346,19 +356,37 @@ export default function ClinicPage() {
                       </div>
                       <div>
                           <div className="panel-meta">{t("clinic.operations.busiest_days")}</div>
-                          <div className="chart-bars" style={{ height: "60px", marginTop: "10px" }}>
-                              {dashboard.operational_health.busiest_days.map((d) => (
-                                  <div className="bar-col" key={d.dow} style={{ flex: 1 }}>
-                                      <div 
-                                          className="bar bar-income" 
-                                          style={{ height: `${(d.count / (Math.max(...dashboard.operational_health.busiest_days.map(x=>x.count)) || 1)) * 100}%` }}
-                                          title={`${d.count} ${t("clinic.operations.visits")}`}
-                                      ></div>
-                                      <div className="bar-label">
-                                          {[t("clinic.weekdays.sun"), t("clinic.weekdays.mon"), t("clinic.weekdays.tue"), t("clinic.weekdays.wed"), t("clinic.weekdays.thu"), t("clinic.weekdays.fri"), t("clinic.weekdays.sat")][d.dow]}
-                                      </div>
-                                  </div>
-                              ))}
+                          <div style={{ height: "120px", marginTop: "10px" }}>
+                              {(() => {
+                                  const dayNames = [t("clinic.weekdays.sun"), t("clinic.weekdays.mon"), t("clinic.weekdays.tue"), t("clinic.weekdays.wed"), t("clinic.weekdays.thu"), t("clinic.weekdays.fri"), t("clinic.weekdays.sat")];
+                                  const allDays = dayNames.map((name, idx) => {
+                                      const found = dashboard.operational_health.busiest_days.find(d => d.dow === idx);
+                                      return { label: name, count: found ? found.count : 0 };
+                                  });
+                                  return (
+                                      <Bar
+                                          data={{
+                                              labels: allDays.map(d => d.label),
+                                              datasets: [{
+                                                  data: allDays.map(d => d.count),
+                                                  backgroundColor: 'rgba(10, 132, 255, 0.6)',
+                                                  borderColor: 'rgba(10, 132, 255, 1)',
+                                                  borderWidth: 1,
+                                                  borderRadius: 6,
+                                              }]
+                                          }}
+                                          options={{
+                                              responsive: true,
+                                              maintainAspectRatio: false,
+                                              plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.raw} ${t("clinic.operations.visits")}` } } },
+                                              scales: {
+                                                  x: { ticks: { color: 'var(--text-secondary)', font: { size: 10 } }, grid: { display: false } },
+                                                  y: { beginAtZero: true, ticks: { color: 'var(--text-secondary)', stepSize: 1, font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.1)' } }
+                                              }
+                                          }}
+                                      />
+                                  );
+                              })()}
                           </div>
                       </div>
                       <div>

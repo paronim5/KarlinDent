@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PeriodSelector from "./PeriodSelector";
+import ThemeSwitcher from "./ThemeSwitcher";
 
-export default function Layout({ children, onLogout }) {
+export default function Layout({ children }) {
   const mobileBreakpoint = 834;
   const { t, i18n } = useTranslation();
   const location = useLocation();
@@ -119,9 +120,9 @@ export default function Layout({ children, onLogout }) {
       </button>
       <aside className={`sidebar ${isSidebarOpen ? "open" : ""}`}>
         <div className="logo">
-          <div className="logo-mark">D</div>
+          <img src="/favicon-32x32.png" alt="Virex" className="logo-icon" />
           <div className="logo-text">
-            Denta<span>Flow</span>
+            VIREX
           </div>
         </div>
 
@@ -198,6 +199,9 @@ export default function Layout({ children, onLogout }) {
         </nav>
 
         <div className="sidebar-footer">
+          <div className="sidebar-controls" style={{ marginBottom: "16px", display: "flex", gap: "10px", padding: "0 12px", alignItems: "center" }}>
+            <ThemeSwitcher />
+          </div>
           <div className="language-switcher" style={{ marginBottom: "20px", display: "flex", gap: "10px", padding: "0 12px" }}>
             <button 
               className={`btn btn-ghost btn-sm ${i18n.language === 'en' ? 'active' : ''}`} 
@@ -231,12 +235,6 @@ export default function Layout({ children, onLogout }) {
               <div className="clinic-sub">{currentMonthLabel}</div>
             </div>
           </div>
-          {onLogout && (
-            <button className="logout-btn" onClick={onLogout} aria-label={t("auth.sign_out")}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-              {t("auth.sign_out")}
-            </button>
-          )}
         </div>
       </aside>
 

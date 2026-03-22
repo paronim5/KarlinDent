@@ -495,8 +495,8 @@ def update_shift(shift_id):
                 return jsonify({"error": "conflict_detected", "conflicts": conflicts}), 409
 
         if status == "accepted":
-            tz = end_time.tzinfo if end_time.tzinfo else datetime.now().astimezone().tzinfo
-            if end_time.date() > datetime.now(tz).date():
+            tz = start_time.tzinfo if start_time.tzinfo else datetime.now().astimezone().tzinfo
+            if start_time.date() > datetime.now(tz).date():
                 return jsonify({"error": "cannot_accept_future_shift"}), 400
         
         cur.execute(
@@ -574,8 +574,8 @@ def update_shift_status(shift_id):
         staff_id, start_time, end_time, current_status, _ = existing
         
         if new_status == "accepted":
-            tz = end_time.tzinfo if end_time.tzinfo else datetime.now().astimezone().tzinfo
-            if end_time.date() > datetime.now(tz).date():
+            tz = start_time.tzinfo if start_time.tzinfo else datetime.now().astimezone().tzinfo
+            if start_time.date() > datetime.now(tz).date():
                 return jsonify({"error": "cannot_accept_future_shift"}), 400
             
         cur.execute(
@@ -664,20 +664,20 @@ def bulk_update_shift_status():
         results = {"updated": [], "failed": []}
         
         for s_id in shift_ids:
-            cur.execute("SELECT staff_id, end_time, status, salary_payment_id FROM shifts WHERE id = %s", (s_id,))
+            cur.execute("SELECT staff_id, start_time, end_time, status, salary_payment_id FROM shifts WHERE id = %s", (s_id,))
             row = cur.fetchone()
             if not row:
                 results["failed"].append({"id": s_id, "error": "not_found"})
                 continue
-                
-            staff_id, end_time, current_status, salary_payment_id = row
+
+            staff_id, start_time, end_time, current_status, salary_payment_id = row
             if salary_payment_id is not None:
                 results["failed"].append({"id": s_id, "error": "paid_shift_locked"})
                 continue
-            
+
             if new_status == "accepted":
-                tz = end_time.tzinfo if end_time.tzinfo else now.astimezone().tzinfo
-                if end_time.date() > now.replace(tzinfo=tz).date():
+                tz = start_time.tzinfo if start_time.tzinfo else now.astimezone().tzinfo
+                if start_time.date() > now.replace(tzinfo=tz).date():
                     results["failed"].append({"id": s_id, "error": "future_shift"})
                     continue
                 

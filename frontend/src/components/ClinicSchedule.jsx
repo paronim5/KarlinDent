@@ -26,7 +26,7 @@ const pxToMin = (px, hourW) => snap((px / hourW) * 60 + START_H * 60);
 const minToPx = (m, hourW) => ((m - START_H * 60) / 60) * hourW;
 
 const DOCTOR_PALETTE = ["#3b82f6", "#6366f1", "#8b5cf6", "#0ea5e9", "#06b6d4", "#2563eb", "#7c3aed", "#0284c7", "#4f46e5"];
-const STAFF_PALETTE = ["#22c55e", "#14b8a6", "#f97316", "#ec4899", "#f59e0b", "#10b981", "#a855f7", "#ef4444", "#84cc16"];
+const STAFF_PALETTE = ["#0a84ff", "#30d158", "#5856d6", "#ff375f", "#ff9f0a", "#14b8a6", "#bf5af2", "#64d2ff", "#ac8e68"];
 
 /* ── Mini calendar ── */
 function MiniCal({ selected, onSelect, t }) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, useCallback } from "react";
+import { useEffect, createContext } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import ClinicPage from "./pages/ClinicPage.jsx";
 import IncomePage from "./pages/IncomePage.jsx";
@@ -12,73 +12,43 @@ import StaffIncomeDashboard from "./pages/StaffIncomeDashboard.jsx";
 import DayDashboardPage from "./pages/DayDashboardPage.jsx";
 import SchedulePage from "./pages/SchedulePage.jsx";
 import SalaryReportPage from "./pages/SalaryReportPage.jsx";
-import LoginPage from "./pages/LoginPage.jsx";
 import Layout from "./components/Layout.jsx";
 
 const AuthContext = createContext(null);
 
 function useAuth() {
-  return useContext(AuthContext);
+  return {
+    user: { id: 1, first_name: "Admin", last_name: "User", role: "admin" },
+    token: "mock-token",
+    login: () => {},
+    logout: () => {}
+  };
 }
 
 function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem("auth_user");
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
-
-  const [token, setToken] = useState(() => localStorage.getItem("auth_token") || null);
-
-  const login = useCallback((newToken, newUser) => {
-    localStorage.setItem("auth_token", newToken);
-    localStorage.setItem("auth_user", JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
-  }, []);
-
-  const logout = useCallback(() => {
-    localStorage.removeItem("auth_token");
-    localStorage.removeItem("auth_user");
-    setToken(null);
-    setUser(null);
-  }, []);
-
-  // If an API call returns 401, log the user out
+  const value = useAuth();
   useEffect(() => {
-    function handleUnauthorized(e) {
-      if (e.detail?.status === 401) {
-        logout();
-      }
+    if (value?.user) {
+      localStorage.setItem("auth_user", JSON.stringify(value.user));
     }
-    window.addEventListener("auth:unauthorized", handleUnauthorized);
-    return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
-  }, [logout]);
-
-  const value = { user, token, login, logout };
-
+    if (value?.token) {
+      localStorage.setItem("auth_token", value.token);
+    }
+  }, [value?.user, value?.token]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 function AppRoutes() {
-  const { user, login, logout } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user && window.location.pathname === "/") {
+    if (window.location.pathname === "/") {
       navigate("/clinic", { replace: true });
     }
-  }, [navigate, user]);
-
-  if (!user) {
-    return <LoginPage onLogin={login} />;
-  }
+  }, [navigate]);
 
   return (
-    <Layout onLogout={logout}>
+    <Layout>
       <Routes>
         <Route path="/clinic" element={<ClinicPage />} />
         <Route path="/income" element={<IncomePage />} />

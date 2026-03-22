@@ -126,6 +126,10 @@ function getCsrfTokenFromDom() {
 function getAuthHeaders() {
   const headers = new Headers();
   try {
+    const token = localStorage.getItem("auth_token");
+    if (token) {
+      headers.set("Authorization", "Bearer " + token);
+    }
     const rawUser = localStorage.getItem("auth_user");
     if (!rawUser) {
       return headers;
@@ -271,6 +275,9 @@ async function fetchRequest(config, requestBody) {
     });
     const body = await parseResponseBody(response);
     if (!response.ok) {
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { status: 401 } }));
+      }
       const rawMessage = body?.error || body?.message || response.statusText || "Request failed";
       throw createAjaxError(rawMessage, {
         status: response.status,

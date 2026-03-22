@@ -399,6 +399,15 @@ const resources = {
           "delete_shift": "Unable to delete shift"
         }
       },
+      "auth": {
+        "sign_in_title": "Sign in to your account",
+        "username": "Username",
+        "password": "Password",
+        "sign_in": "Sign in",
+        "signing_in": "Signing in…",
+        "sign_out": "Sign out",
+        "connection_error": "Connection error. Please try again."
+      },
       "schedule": {
         "today": "Today",
         "add_shift": "Add Shift",
@@ -848,6 +857,15 @@ const resources = {
           "delete_shift": "Не удалось удалить смену"
         }
       },
+      "auth": {
+        "sign_in_title": "Войдите в свой аккаунт",
+        "username": "Имя пользователя",
+        "password": "Пароль",
+        "sign_in": "Войти",
+        "signing_in": "Вход…",
+        "sign_out": "Выйти",
+        "connection_error": "Ошибка соединения. Попробуйте ещё раз."
+      },
       "schedule": {
         "today": "Сегодня",
         "add_shift": "Добавить смену",
@@ -1296,6 +1314,15 @@ const resources = {
           "save_shift": "Nepodařilo se uložit směnu",
           "delete_shift": "Nepodařilo se smazat směnu"
         }
+      },
+      "auth": {
+        "sign_in_title": "Přihlaste se ke svému účtu",
+        "username": "Uživatelské jméno",
+        "password": "Heslo",
+        "sign_in": "Přihlásit se",
+        "signing_in": "Přihlašování…",
+        "sign_out": "Odhlásit se",
+        "connection_error": "Chyba připojení. Zkuste to prosím znovu."
       },
       "schedule": {
         "today": "Dnes",

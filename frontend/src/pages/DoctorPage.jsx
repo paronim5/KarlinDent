@@ -231,7 +231,7 @@ export default function DoctorPage() {
     setShiftsLoading(true);
     try {
       const data = await api.get(
-        `/schedule?staff_id=${id}&start=${encodeURIComponent(rangeFrom + "T00:00:00Z")}&end=${encodeURIComponent(rangeTo + "T23:59:59Z")}`
+        `/schedule?staff_id=${id}&start=${encodeURIComponent(rangeFrom + "T00:00:00")}&end=${encodeURIComponent(rangeTo + "T23:59:59")}`
       );
       setShifts(Array.isArray(data) ? data : []);
     } catch {

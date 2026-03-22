@@ -227,14 +227,14 @@ export default function AddOutcomePage() {
       try {
         const ts = await api.get(
           `/schedule?staff_id=${selectedStaffId}&start=${encodeURIComponent(
-            salaryRange.from + 'T00:00:00Z'
-          )}&end=${encodeURIComponent(salaryRange.to + 'T23:59:59Z')}&status=accepted&unpaid=true`
+            salaryRange.from + 'T00:00:00'
+          )}&end=${encodeURIComponent(salaryRange.to + 'T23:59:59')}&status=accepted&unpaid=true`
         );
         let weekdayHrs = 0, weekendHrs = 0;
         ts.forEach((item) => {
           const h = Number(item.salary_hours ?? item.hours ?? 0);
           const d = new Date(item.start || item.work_date);
-          const day = d.getUTCDay(); // 0=Sun, 6=Sat
+          const day = d.getDay(); // 0=Sun, 6=Sat
           if (day === 0 || day === 6) weekendHrs += h;
           else weekdayHrs += h;
         });

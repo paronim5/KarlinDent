@@ -1,4 +1,4 @@
-import { useEffect, createContext } from "react";
+import { useState, useEffect, createContext, useContext, useCallback } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import ClinicPage from "./pages/ClinicPage.jsx";
 import IncomePage from "./pages/IncomePage.jsx";
@@ -12,45 +12,73 @@ import StaffIncomeDashboard from "./pages/StaffIncomeDashboard.jsx";
 import DayDashboardPage from "./pages/DayDashboardPage.jsx";
 import SchedulePage from "./pages/SchedulePage.jsx";
 import SalaryReportPage from "./pages/SalaryReportPage.jsx";
+import LoginPage from "./pages/LoginPage.jsx";
 import Layout from "./components/Layout.jsx";
 
 const AuthContext = createContext(null);
 
 function useAuth() {
-  // Auth removed: Return a mock admin user
-  return {
-    user: { id: 1, first_name: "Admin", last_name: "User", role: "admin" },
-    token: "mock-token",
-    login: () => {},
-    logout: () => {}
-  };
+  return useContext(AuthContext);
 }
 
 function AuthProvider({ children }) {
-  const value = useAuth();
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("auth_user");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [token, setToken] = useState(() => localStorage.getItem("auth_token") || null);
+
+  const login = useCallback((newToken, newUser) => {
+    localStorage.setItem("auth_token", newToken);
+    localStorage.setItem("auth_user", JSON.stringify(newUser));
+    setToken(newToken);
+    setUser(newUser);
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_user");
+    setToken(null);
+    setUser(null);
+  }, []);
+
+  // If an API call returns 401, log the user out
   useEffect(() => {
-    if (value?.user) {
-      localStorage.setItem("auth_user", JSON.stringify(value.user));
+    function handleUnauthorized(e) {
+      if (e.detail?.status === 401) {
+        logout();
+      }
     }
-    if (value?.token) {
-      localStorage.setItem("auth_token", value.token);
-    }
-  }, [value?.user, value?.token]);
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
+  }, [logout]);
+
+  const value = { user, token, login, logout };
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 function AppRoutes() {
+  const { user, login, logout } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Initial redirect to clinic if at root
-    if (window.location.pathname === "/") {
+    if (user && window.location.pathname === "/") {
       navigate("/clinic", { replace: true });
     }
-  }, [navigate]);
+  }, [navigate, user]);
+
+  if (!user) {
+    return <LoginPage onLogin={login} />;
+  }
 
   return (
-    <Layout>
+    <Layout onLogout={logout}>
       <Routes>
         <Route path="/clinic" element={<ClinicPage />} />
         <Route path="/income" element={<IncomePage />} />
@@ -80,4 +108,3 @@ export default function App() {
 }
 
 export { useAuth };
-

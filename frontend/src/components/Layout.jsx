@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PeriodSelector from "./PeriodSelector";
 
-export default function Layout({ children }) {
+export default function Layout({ children, onLogout }) {
   const mobileBreakpoint = 834;
   const { t, i18n } = useTranslation();
   const location = useLocation();
@@ -19,6 +19,12 @@ export default function Layout({ children }) {
     week: t("income.period.week"),
     day: t("income.period.day")
   }), [t]);
+
+  // Dynamic current month labels — locale-aware via i18n language
+  const dateLocale = i18n.language === "cs" ? "cs-CZ" : i18n.language === "ru" ? "ru-RU" : "en-US";
+  const now = new Date();
+  const currentMonthLabel = now.toLocaleDateString(dateLocale, { month: "short", year: "numeric" }).toUpperCase();
+  const currentMonthLabelFull = now.toLocaleDateString(dateLocale, { month: "long", year: "numeric" }).toUpperCase();
 
   const computeRange = (p) => {
     const now = new Date();
@@ -113,9 +119,9 @@ export default function Layout({ children }) {
       </button>
       <aside className={`sidebar ${isSidebarOpen ? "open" : ""}`}>
         <div className="logo">
-          <div className="logo-mark">M</div>
+          <div className="logo-mark">D</div>
           <div className="logo-text">
-            Med<span>Pay</span>
+            Denta<span>Flow</span>
           </div>
         </div>
 
@@ -219,12 +225,18 @@ export default function Layout({ children }) {
             </button>
           </div>
           <div className="clinic-badge">
-            <div className="clinic-avatar">HC</div>
+            <div className="clinic-avatar">KD</div>
             <div>
-              <div className="clinic-name">HealthCare+</div>
-              <div className="clinic-sub">MAR 2025</div>
+              <div className="clinic-name">KarlinDent</div>
+              <div className="clinic-sub">{currentMonthLabel}</div>
             </div>
           </div>
+          {onLogout && (
+            <button className="logout-btn" onClick={onLogout} aria-label={t("auth.sign_out")}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              {t("auth.sign_out")}
+            </button>
+          )}
         </div>
       </aside>
 
@@ -245,7 +257,7 @@ export default function Layout({ children }) {
                location.pathname.startsWith("/my-income") ? t("nav.my_income") :
                t("nav.dashboard")}
             </div>
-            <div className="topbar-sub">MARCH 2025 · {t("common.period_active")}</div>
+            <div className="topbar-sub">{currentMonthLabelFull} · {t("common.period_active")}</div>
           </div>
           <div className="topbar-actions">
             {showPeriod && (

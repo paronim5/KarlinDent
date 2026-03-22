@@ -80,7 +80,7 @@ export default function StaffRolePage() {
     try {
       const [staffList, ts] = await Promise.all([
         api.get("/staff"),
-        api.get(`/schedule?staff_id=${id}&start=${encodeURIComponent(rangeFrom + 'T00:00:00Z')}&end=${encodeURIComponent(rangeTo + 'T23:59:59Z')}`)
+        api.get(`/schedule?staff_id=${id}&start=${encodeURIComponent(rangeFrom + 'T00:00:00')}&end=${encodeURIComponent(rangeTo + 'T23:59:59')}`)
       ]);
       const me = staffList.find((s) => String(s.id) === String(id));
       setStaff(me || null);
@@ -227,7 +227,7 @@ export default function StaffRolePage() {
     let wd = 0, we = 0;
     unpaid.forEach((t) => {
       const d = new Date(t.start || t.work_date);
-      const day = d.getUTCDay(); // 0=Sun, 6=Sat
+      const day = d.getDay(); // 0=Sun, 6=Sat
       const h = Number(t.salary_hours ?? t.hours ?? 0);
       if (day === 0 || day === 6) we += h;
       else wd += h;
@@ -291,8 +291,8 @@ export default function StaffRolePage() {
         setError(t("staff_role.errors.required_shift_fields"));
         return;
       }
-      const start_time = `${form.workDate}T${form.startTime}:00Z`;
-      const end_time = `${form.workDate}T${form.endTime}:00Z`;
+      const start_time = `${form.workDate}T${form.startTime}:00`;
+      const end_time = `${form.workDate}T${form.endTime}:00`;
 
       if (editingId) {
         await api.put(`/schedule/${editingId}`, {

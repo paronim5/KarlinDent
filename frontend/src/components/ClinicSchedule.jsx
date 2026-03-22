@@ -8,6 +8,8 @@ const SLOT_H = END_H - START_H;
 const SNAP_MIN = 15; // snap to 15-minute increments
 
 const f2 = (n) => String(n).padStart(2, "0");
+/** Format a Date as a local ISO string (no timezone suffix) so the server stores wall-clock time. */
+const toLocalISO = (d) => `${d.getFullYear()}-${f2(d.getMonth() + 1)}-${f2(d.getDate())}T${f2(d.getHours())}:${f2(d.getMinutes())}:${f2(d.getSeconds())}`;
 const toM = (h, m) => h * 60 + m;
 const durH = (start, end) => {
   const mins = (end - start) / 60000;
@@ -201,7 +203,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
     try {
       const start = new Date(date); start.setHours(0, 0, 0, 0);
       const end = new Date(date); end.setHours(23, 59, 59, 999);
-      setShifts(await api.get(`/schedule?start=${start.toISOString()}&end=${end.toISOString()}`));
+      setShifts(await api.get(`/schedule?start=${encodeURIComponent(toLocalISO(start))}&end=${encodeURIComponent(toLocalISO(end))}`));
     } catch (err) { console.error("Failed to fetch shifts", err); }
     finally { setLoading(false); }
   }, [api, date]);
@@ -253,7 +255,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
     const start = new Date(date); start.setHours(sh, sm, 0, 0);
     const end = new Date(date); end.setHours(eh, em, 0, 0);
     try {
-      await api.put(`/schedule/${shiftId}`, { start_time: start.toISOString(), end_time: end.toISOString(), force: true });
+      await api.put(`/schedule/${shiftId}`, { start_time: toLocalISO(start), end_time: toLocalISO(end), force: true });
       await fetchShifts();
     } catch (err) { console.error("Drag update failed", err); await fetchShifts(); }
   }, [api, date, fetchShifts]);
@@ -343,7 +345,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
     const start = new Date(date); start.setHours(9, 0, 0, 0);
     const end = new Date(date); end.setHours(20, 0, 0, 0);
     try {
-      await api.post("/schedule", { staff_id: staffId, start_time: start.toISOString(), end_time: end.toISOString(), note: "", force: true });
+      await api.post("/schedule", { staff_id: staffId, start_time: toLocalISO(start), end_time: toLocalISO(end), note: "", force: true });
       await fetchShifts();
     } catch (err) { alert(t("schedule.errors.save_shift", { message: err.message || "Unknown error" })); }
   }, [api, date, fetchShifts, t]);
@@ -373,7 +375,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
       const [eh, em] = modalForm.end_time.split(":").map(Number);
       const start = new Date(date); start.setHours(sh, sm, 0, 0);
       const end = new Date(date); end.setHours(eh, em, 0, 0);
-      const payload = { staff_id: Number(modalForm.staff_id), start_time: start.toISOString(), end_time: end.toISOString(), note: modalForm.note, force: true };
+      const payload = { staff_id: Number(modalForm.staff_id), start_time: toLocalISO(start), end_time: toLocalISO(end), note: modalForm.note, force: true };
       if (editingShift) await api.put(`/schedule/${editingShift.id}`, payload);
       else await api.post("/schedule", payload);
       setModalOpen(false);

@@ -470,11 +470,13 @@ def dashboard():
         for row in visits_monthly_rows
     ]
 
+    # Always relative to today, not the selected period's end date
+    today_for_salary = date.today()
     days_since_last_salary = []
     for row in staff_last_paid_rows:
         last_paid = row[3]
         if last_paid:
-            days_since = (end - last_paid).days
+            days_since = (today_for_salary - last_paid).days
         else:
             days_since = None
         days_since_last_salary.append(
@@ -890,6 +892,8 @@ def get_dashboard_data():
         }
         
         # Operational Health - Days Since Last Salary
+        # Always relative to today, not the selected period's end date
+        today_for_salary = date.today()
         cur.execute(
             """
             SELECT s.id, s.first_name, s.last_name, s.last_paid_at
@@ -901,7 +905,7 @@ def get_dashboard_data():
         days_since_last_salary = []
         for row in cur.fetchall():
             last_paid = row[3]
-            days_since = (end_date - last_paid).days if last_paid else None
+            days_since = (today_for_salary - last_paid).days if last_paid else None
             days_since_last_salary.append({
                 "id": row[0],
                 "name": f"{row[1]} {row[2]}",

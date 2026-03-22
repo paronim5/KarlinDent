@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
@@ -13,6 +13,26 @@ const emptyForm = {
   baseSalary: "",
   commissionRate: "",
   weekendSalary: "200"
+};
+
+const computeRange = (p) => {
+  const now = new Date();
+  const to = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString().slice(0, 10);
+  let from;
+  if (p === "day") {
+    from = to;
+  } else if (p === "week") {
+    const d = new Date(to);
+    d.setUTCDate(d.getUTCDate() - 6);
+    from = d.toISOString().slice(0, 10);
+  } else if (p === "month") {
+    const d = new Date(to);
+    from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
+  } else {
+    const d = new Date(to);
+    from = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)).toISOString().slice(0, 10);
+  }
+  return { from, to };
 };
 
 export default function StaffPage() {
@@ -39,6 +59,34 @@ export default function StaffPage() {
   const [medicineError, setMedicineError] = useState("");
   const [payModal, setPayModal] = useState(null);
   const [paying, setPaying] = useState(false);
+
+  const initialPeriod = localStorage.getItem("globalPeriod") || "month";
+  const [period, setPeriod] = useState(initialPeriod);
+  const [stats, setStats] = useState(null);
+
+  const loadStats = useCallback(async (p) => {
+    const { from, to } = computeRange(p);
+    try {
+      const data = await api.get(`/staff/stats?from=${from}&to=${to}`);
+      setStats(data);
+    } catch {
+      setStats(null);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    loadStats(period);
+  }, [period, loadStats]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (event?.detail?.period) {
+        setPeriod(event.detail.period);
+      }
+    };
+    window.addEventListener("periodChanged", handler);
+    return () => window.removeEventListener("periodChanged", handler);
+  }, []);
 
   const loadRoles = async () => {
     try {
@@ -276,10 +324,31 @@ export default function StaffPage() {
     }
   };
 
+  const formatCurrency = (value) =>
+    Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
+
   return (
     <>
       {error && <div className="form-error">{t("staff_role.system_error", { error })}</div>}
-      
+
+      <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="stat-card s-orange">
+          <div className="stat-icon">◉</div>
+          <div className="stat-label">{t("staff.stats.active_staff", { defaultValue: "Active Staff" })}</div>
+          <div className="stat-value">{stats ? stats.staff_count : filteredStaff.length}</div>
+        </div>
+        <div className="stat-card s-red">
+          <div className="stat-icon">↙</div>
+          <div className="stat-label">{t("staff.stats.total_paid", { defaultValue: "Total Paid Salary" })}</div>
+          <div className="stat-value">{formatCurrency(stats?.total_paid_salary)}</div>
+        </div>
+        <div className="stat-card s-green">
+          <div className="stat-icon">◈</div>
+          <div className="stat-label">{t("staff.stats.total_hours", { defaultValue: "Total Worked Hours" })}</div>
+          <div className="stat-value">{stats ? stats.total_worked_hours.toFixed(1) : "—"}h</div>
+        </div>
+      </div>
+
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -383,7 +452,7 @@ export default function StaffPage() {
       )}
 
       {showForm && (
-        <div className="modal-backdrop">
+        <div className="modal-overlay">
           <div className="quick-form" style={{ width: '100%', maxWidth: '500px' }}>
             <div className="panel-title" style={{ marginBottom: '16px' }}>{editingMember ? t("staff.edit_staff") : t("staff.add_staff")}</div>
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

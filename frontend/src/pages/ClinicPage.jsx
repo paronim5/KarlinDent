@@ -154,7 +154,7 @@ export default function ClinicPage() {
     Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
 
   return (
-    <div className="content">
+    <>
       {loading && <div>{t("common.loading")}</div>}
       {error && <div className="form-error">{error}</div>}
       {dashboard && (
@@ -195,7 +195,7 @@ export default function ClinicPage() {
                 <div className="panel-meta">{t("clinic.period_meta", { period: periodLabels[period] })}</div>
               </div>
             </div>
-            <div className="chart-area" style={{ height: '400px' }}>
+            <div className="chart-area" style={{ height: 'min(400px, 50vh)' }}>
               <div style={{ display: 'flex', gap: '20px', justifyContent: 'flex-end', marginBottom: '10px' }}>
                  <label className="check-row">
                     <input type="checkbox" checked={showIncome} onChange={e => setShowIncome(e.target.checked)} />
@@ -213,7 +213,7 @@ export default function ClinicPage() {
           </div>
 
           {/* Business Metrics Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginTop: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 400px), 1fr))', gap: '20px', marginTop: '20px' }}>
               
               {/* Financial Overview */}
               <div className="panel">
@@ -229,14 +229,14 @@ export default function ClinicPage() {
                               <div className="stat-value">{dashboard.financial_overview.lab_ratio}%</div>
                           </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '10px' }}>
-                          <div style={{ flex: 1, padding: '10px', background: 'var(--surface)', borderRadius: '8px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                          <div style={{ flex: '1 1 120px', padding: '10px', background: 'var(--surface)', borderRadius: '8px' }}>
                               <div className="stat-label">{t("income.form.cash")}</div>
-                              <div className="mono">{formatCurrency(dashboard.financial_overview.cash_total)} ({dashboard.financial_overview.cash_ratio}%)</div>
+                              <div className="mono" style={{ fontSize: '13px', wordBreak: 'break-all' }}>{formatCurrency(dashboard.financial_overview.cash_total)} ({dashboard.financial_overview.cash_ratio}%)</div>
                           </div>
-                          <div style={{ flex: 1, padding: '10px', background: 'var(--surface)', borderRadius: '8px' }}>
+                          <div style={{ flex: '1 1 120px', padding: '10px', background: 'var(--surface)', borderRadius: '8px' }}>
                               <div className="stat-label">{t("income.form.card")}</div>
-                              <div className="mono">{formatCurrency(dashboard.financial_overview.card_total)} ({dashboard.financial_overview.card_ratio}%)</div>
+                              <div className="mono" style={{ fontSize: '13px', wordBreak: 'break-all' }}>{formatCurrency(dashboard.financial_overview.card_total)} ({dashboard.financial_overview.card_ratio}%)</div>
                           </div>
                       </div>
                   </div>
@@ -246,16 +246,16 @@ export default function ClinicPage() {
               <div className="panel">
                   <div className="panel-header"><div className="panel-title">{t("clinic.sections.patients")}</div></div>
                   <div style={{ padding: '20px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-                          <div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', marginBottom: '16px' }}>
+                          <div style={{ minWidth: '80px' }}>
                               <div className="stat-label">{t("clinic.patients.unique")}</div>
                               <div className="stat-value" style={{ fontSize: '24px' }}>{dashboard.patient_insights.unique_patients}</div>
                           </div>
-                          <div>
+                          <div style={{ minWidth: '80px' }}>
                               <div className="stat-label">{t("clinic.patients.new")}</div>
                               <div className="stat-value" style={{ fontSize: '24px', color: 'var(--green)' }}>{dashboard.patient_insights.new_patients}</div>
                           </div>
-                          <div>
+                          <div style={{ minWidth: '80px' }}>
                               <div className="stat-label">{t("clinic.patients.avg_visit")}</div>
                               <div className="stat-value" style={{ fontSize: '24px', color: 'var(--blue)' }}>{formatCurrency(dashboard.patient_insights.avg_revenue_per_visit)}</div>
                           </div>
@@ -277,6 +277,7 @@ export default function ClinicPage() {
               {/* Doctor Performance */}
               <div className="panel">
                   <div className="panel-header"><div className="panel-title">{t("clinic.sections.doctors")}</div></div>
+                  <div className="table-wrapper">
                   <table className="data-table">
                       <thead>
                           <tr>
@@ -297,6 +298,7 @@ export default function ClinicPage() {
                           ))}
                       </tbody>
                   </table>
+                  </div>
               </div>
 
               {/* Expense Analysis */}
@@ -329,12 +331,13 @@ export default function ClinicPage() {
                   <div style={{ padding: '20px', display: 'grid', gap: '20px' }}>
                       <div>
                           <div className="panel-meta">{t("clinic.operations.days_since_salary")}</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px', maxWidth: '100%' }}>
                               {dashboard.operational_health.days_since_last_salary.map(s => (
-                                  <div key={s.id} className="pill" style={{ 
+                                  <div key={s.id} className="pill" style={{
                                       background: (s.days > 35 || s.days === null) ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
                                       color: (s.days > 35 || s.days === null) ? 'var(--red)' : 'var(--green)',
-                                      border: '1px solid currentColor'
+                                      border: '1px solid currentColor',
+                                      fontSize: '11px'
                                   }}>
                                       {s.name}: {s.days === null ? t("common.never") : `${s.days}d`}
                                   </div>
@@ -382,6 +385,6 @@ export default function ClinicPage() {
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }

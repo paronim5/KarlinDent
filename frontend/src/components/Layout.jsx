@@ -66,7 +66,7 @@ export default function Layout({ children }) {
     location.pathname.startsWith("/clinic") ||
     location.pathname.startsWith("/income") ||
     location.pathname.startsWith("/outcome") ||
-    location.pathname.startsWith("/staff/doctor") ||
+    location.pathname.startsWith("/staff") ||
     location.pathname.startsWith("/my-income");
 
   const changeLanguage = (lng) => {

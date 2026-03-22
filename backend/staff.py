@@ -1646,6 +1646,62 @@ def pay_salary():
         release_connection(conn)
 
 
+@staff_bp.route("/stats", methods=["GET"])
+def staff_stats():
+    """Return aggregate staff statistics for a date range."""
+    from_str = request.args.get("from")
+    to_str = request.args.get("to")
+    try:
+        period_from = date.fromisoformat(from_str) if from_str else date.today().replace(day=1)
+        period_to = date.fromisoformat(to_str) if to_str else date.today()
+    except ValueError:
+        return jsonify({"error": "invalid_date"}), 400
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        # Total paid salaries in period
+        cur.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM salary_payments WHERE payment_date >= %s AND payment_date <= %s",
+            (period_from, period_to),
+        )
+        total_paid = float(cur.fetchone()[0])
+
+        # Total worked hours in period (all accepted/approved shifts)
+        try:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(
+                    EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0
+                    * (COALESCE(completion_percent, 100) / 100.0)
+                ), 0)
+                FROM shifts
+                WHERE start_time >= %s AND end_time <= %s
+                  AND status IN ('accepted', 'approved')
+                """,
+                (datetime.combine(period_from, time(0, 0, 0)),
+                 datetime.combine(period_to, time(23, 59, 59))),
+            )
+            total_hours = float(cur.fetchone()[0])
+        except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+            conn.rollback()
+            total_hours = 0.0
+
+        # Staff count
+        cur.execute("SELECT COUNT(*) FROM staff WHERE is_active = TRUE")
+        staff_count = cur.fetchone()[0]
+
+        return jsonify({
+            "total_paid_salary": round(total_paid, 2),
+            "total_worked_hours": round(total_hours, 2),
+            "staff_count": staff_count,
+            "period_from": period_from.isoformat(),
+            "period_to": period_to.isoformat(),
+        })
+    finally:
+        release_connection(conn)
+
+
 @staff_bp.route("", methods=["GET"])
 def list_staff():
     role = request.args.get("role")

@@ -22,25 +22,7 @@ cd karlindent
 
 ---
 
-## Step 2 — Configure environment
-
-Copy the example env file and fill in your values:
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-Set at minimum:
-```
-POSTGRES_USER=virex
-POSTGRES_PASSWORD=yourpassword
-POSTGRES_DB=karlindent
-```
-
----
-
-## Step 3 — Build and start the app
+## Step 2 — Build and start the app
 
 ```bash
 docker compose up -d --build
@@ -61,7 +43,7 @@ All services should show `Up` or `healthy`.
 Run the SQL file against the database container:
 
 ```bash
-docker compose exec -T db psql -U virex -d karlindent < test_data.sql
+docker compose exec -T db psql -U policlinic -d policlinic < test_data.sql
 ```
 
 You should see output like:
@@ -93,7 +75,7 @@ Copy the output hash (it starts with `$2b$12$...`).
 ### Apply the hash to all staff
 
 ```bash
-docker compose exec db psql -U virex -d karlindent -c \
+docker compose exec db psql -U policlinic -d policlinic -c \
   "UPDATE staff SET password_hash = '\$2b\$12\$YOUR_HASH_HERE';"
 ```
 
@@ -145,7 +127,7 @@ To wipe everything and start fresh:
 ```bash
 docker compose down -v
 docker compose up -d --build
-docker compose exec -T db psql -U virex -d karlindent < test_data.sql
+docker compose exec -T db psql -U policlinic -d policlinic < test_data.sql
 ```
 
 The `-v` flag removes the database volume so you get a clean state.

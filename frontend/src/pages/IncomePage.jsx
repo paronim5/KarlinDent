@@ -113,13 +113,10 @@ export default function IncomePage() {
     const handler = (event) => {
       if (event?.detail?.period) {
         setPeriod(event.detail.period);
-        // If the global period selector emits a date, use it.
-        // Assuming event.detail.date is present if global selector supports it.
-        // ClinicPage.jsx doesn't seem to emit date, but it uses date.
-        // We will default to today if period changes, unless we want to keep current viewDate.
-        // For now, let's keep viewDate unless we want to reset.
-        if (event.detail.date) {
-            setViewDate(new Date(event.detail.date));
+        if (event.detail.year !== undefined) {
+          setViewDate(new Date(`${event.detail.year}-06-15`));
+        } else if (event.detail.date) {
+          setViewDate(new Date(event.detail.date));
         }
       }
     };

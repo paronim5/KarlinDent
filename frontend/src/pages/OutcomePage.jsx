@@ -141,8 +141,10 @@ export default function OutcomePage() {
     const handler = (event) => {
       if (event?.detail?.period) {
         setPeriod(event.detail.period);
-        if (event.detail.date) {
-            setViewDate(new Date(event.detail.date));
+        if (event.detail.year !== undefined) {
+          setViewDate(new Date(`${event.detail.year}-06-15`));
+        } else if (event.detail.date) {
+          setViewDate(new Date(event.detail.date));
         }
       }
     };

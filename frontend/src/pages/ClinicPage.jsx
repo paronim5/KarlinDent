@@ -73,6 +73,10 @@ export default function ClinicPage() {
     const handler = (event) => {
       if (event?.detail?.period) {
         setPeriod(event.detail.period);
+        // Year selector: update reference date so the correct year is fetched
+        if (event.detail.year !== undefined) {
+          setDate(`${event.detail.year}-06-15`);
+        }
       }
     };
     window.addEventListener("periodChanged", handler);

@@ -12,9 +12,10 @@ import {
   Tooltip,
   Legend
 } from "chart.js";
+import ChartDataLabels from "chartjs-plugin-datalabels";
 import { useApi } from "../api/client.js";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, ChartDataLabels);
 
 function getChartColors() {
   const theme = document.documentElement.getAttribute("data-theme") || "dark";
@@ -162,6 +163,20 @@ export default function ClinicPage() {
       tooltip: {
         titleFont: tickFont,
         bodyFont: tickFont
+      },
+      datalabels: {
+        display: (ctx) => ctx.dataset.data[ctx.dataIndex] != null,
+        anchor: "end",
+        align: "top",
+        offset: 2,
+        color: (ctx) => ctx.dataset.borderColor,
+        font: { size: 10, family: "-apple-system,sans-serif", weight: "600" },
+        formatter: (value) => {
+          if (value == null) return null;
+          if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M Kč`;
+          if (value >= 1000) return `${(value / 1000).toFixed(0)}K Kč`;
+          return `${value} Kč`;
+        }
       }
     }
   };
@@ -340,7 +355,7 @@ export default function ClinicPage() {
                           options={{
                               responsive: true,
                               maintainAspectRatio: false,
-                              plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } } },
+                              plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } } },
                               scales: {
                                   x: { ticks: { color: ticks, font: { size: 10 } }, grid: { display: false } },
                                   y: { beginAtZero: true, ticks: { color: ticks, font: { size: 10 } }, grid: { color: grid } }
@@ -393,7 +408,7 @@ export default function ClinicPage() {
                                           options={{
                                               responsive: true,
                                               maintainAspectRatio: false,
-                                              plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.raw} ${t("clinic.operations.visits")}` } } },
+                                              plugins: { legend: { display: false }, datalabels: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.raw} ${t("clinic.operations.visits")}` } } },
                                               scales: {
                                                   x: { ticks: { color: ticks, font: { size: 10 } }, grid: { display: false } },
                                                   y: { beginAtZero: true, ticks: { color: ticks, stepSize: 1, font: { size: 10 } }, grid: { color: grid } }

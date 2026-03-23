@@ -171,8 +171,8 @@ const resources = {
           "select_doctor_placeholder": "Select doctor..."
         },
         "banner": {
-          "found_basic": "Found: {{name}} – Total paid: €{{total}}",
-          "found_with_last": "Found: {{name}} – Total paid: €{{total}}, Last treatment: {{doctor}}, {{date}}",
+          "found_basic": "Found: {{name}} – Total paid: {{total}} Kč",
+          "found_with_last": "Found: {{name}} – Total paid: {{total}} Kč, Last treatment: {{doctor}}, {{date}}",
           "new_patient": "New patient will be created"
         },
         "validation": {
@@ -629,8 +629,8 @@ const resources = {
           "select_doctor_placeholder": "Выберите врача..."
         },
         "banner": {
-          "found_basic": "Найден пациент: {{name}} — оплачено всего: €{{total}}",
-          "found_with_last": "Найден пациент: {{name}} — оплачено всего: €{{total}}, последнее лечение: {{doctor}}, {{date}}",
+          "found_basic": "Найден пациент: {{name}} — оплачено всего: {{total}} Kč",
+          "found_with_last": "Найден пациент: {{name}} — оплачено всего: {{total}} Kč, последнее лечение: {{doctor}}, {{date}}",
           "new_patient": "Будет создан новый пациент"
         },
         "validation": {
@@ -1087,8 +1087,8 @@ const resources = {
           "select_doctor_placeholder": "Vyberte lékaře..."
         },
         "banner": {
-          "found_basic": "Nalezeno: {{name}} – Celkem zaplaceno: €{{total}}",
-          "found_with_last": "Nalezeno: {{name}} – Celkem zaplaceno: €{{total}}, Poslední ošetření: {{doctor}}, {{date}}",
+          "found_basic": "Nalezeno: {{name}} – Celkem zaplaceno: {{total}} Kč",
+          "found_with_last": "Nalezeno: {{name}} – Celkem zaplaceno: {{total}} Kč, Poslední ošetření: {{doctor}}, {{date}}",
           "new_patient": "Bude vytvořen nový pacient"
         },
         "validation": {

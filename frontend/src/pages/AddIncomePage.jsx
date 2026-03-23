@@ -594,7 +594,7 @@ export default function AddIncomePage() {
               <div>
                 <div className="form-label">{t("income.form.amount")}</div>
                 <div className="amount-input-wrap">
-                  <span className="amount-prefix">€</span>
+                  <span className="amount-prefix">Kč</span>
                   <input
                     className="form-input"
                     type="number"

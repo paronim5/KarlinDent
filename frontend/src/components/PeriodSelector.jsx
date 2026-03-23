@@ -43,7 +43,7 @@ export default function PeriodSelector({
       </div>
 
       {value === "year" && availableYears.length > 1 && (
-        <div className="date-strip">
+        <div className="date-strip date-strip--years">
           {availableYears.map(yr => (
             <button
               key={yr}

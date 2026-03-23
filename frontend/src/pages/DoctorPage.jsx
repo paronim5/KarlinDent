@@ -68,7 +68,8 @@ export default function DoctorPage() {
       legend: {
         position: "bottom",
         labels: { color: legend, font: legendFont }
-      }
+      },
+      datalabels: { display: false }
     },
     animation: {
       duration: 350,

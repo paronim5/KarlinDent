@@ -53,6 +53,7 @@ export default function StaffIncomeDashboard() {
         position: "bottom",
         labels: { color: legend, font: legendFont },
       },
+      datalabels: { display: false },
     },
   };
 

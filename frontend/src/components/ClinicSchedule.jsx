@@ -158,10 +158,18 @@ export default function ClinicSchedule({ api: injectedApi }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState(null);
   const [modalForm, setModalForm] = useState({ staff_id: "", start_time: "09:00", end_time: "17:00", note: "" });
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
 
-  const ROW_H = 56;
-  const LABEL_W = 200;
-  const HOUR_W = 50;
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const ROW_H = isMobile ? 44 : 56;
+  const LABEL_W = isMobile ? 120 : 200;
+  const HOUR_W = isMobile ? 40 : 50;
   const totalW = HOUR_W * SLOT_H;
 
   /* ── Drag state ── */
@@ -414,20 +422,25 @@ export default function ClinicSchedule({ api: injectedApi }) {
   const unscheduled = currentList.filter((m) => !staffWithShifts.some((s) => s.id === m.id));
 
   return (
-    <div style={{ display: "flex", gap: 20, height: "100%", minHeight: 0 }}>
+    <div className="schedule-layout" style={{ display: "flex", gap: isMobile ? 0 : 20, flexDirection: isMobile ? "column" : "row", height: "100%", minHeight: 0 }}>
       {/* ── Main panel ── */}
       <div className="panel" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
 
         {/* Header row */}
-        <div className="panel-header" style={{ flexWrap: "wrap", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="panel-header" style={{ flexWrap: "wrap", gap: isMobile ? 8 : 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 8, flexWrap: "wrap" }}>
             <button onClick={() => setDate((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1))} className="btn btn-ghost" style={{ padding: "4px 10px", minHeight: 32, fontSize: 16 }}>&#8249;</button>
-            <span style={{ fontSize: 14, fontWeight: 700, minWidth: 170, textAlign: "center", fontFamily: "var(--font-mono)", letterSpacing: 0.5 }}>{dateLabel}</span>
+            <span style={{ fontSize: isMobile ? 12 : 14, fontWeight: 700, minWidth: isMobile ? 120 : 170, textAlign: "center", fontFamily: "var(--font-mono)", letterSpacing: 0.5 }}>{dateLabel}</span>
             <button onClick={() => setDate((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1))} className="btn btn-ghost" style={{ padding: "4px 10px", minHeight: 32, fontSize: 16 }}>&#8250;</button>
-            <button onClick={() => setDate(new Date())} className="btn btn-ghost" style={{ padding: "4px 12px", minHeight: 32, fontSize: 11, letterSpacing: 1 }}>{t("schedule.today").toUpperCase()}</button>
+            <button onClick={() => setDate(new Date())} className="btn btn-ghost" style={{ padding: "4px 10px", minHeight: 32, fontSize: 11, letterSpacing: 1 }}>{t("schedule.today").toUpperCase()}</button>
           </div>
-          <div style={{ marginLeft: "auto" }}>
-            <button onClick={() => openModal(null)} className="btn btn-primary" style={{ fontSize: 13 }}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            {isMobile && (
+              <button onClick={() => setShowSidebar(v => !v)} className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 10px", minHeight: 32 }}>
+                📅
+              </button>
+            )}
+            <button onClick={() => openModal(null)} className="btn btn-primary" style={{ fontSize: isMobile ? 11 : 13 }}>
               + {t("schedule.add_shift", { defaultValue: "Add Shift" })}
             </button>
           </div>
@@ -594,7 +607,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
       </div>
 
       {/* ── Sidebar ── */}
-      <div style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16, minHeight: 0, overflow: "auto" }}>
+      {(!isMobile || showSidebar) && <div style={{ width: isMobile ? "100%" : 260, flexShrink: 0, display: "flex", flexDirection: isMobile ? "row" : "column", gap: 16, minHeight: 0, overflow: "auto", maxHeight: isMobile ? "40vh" : undefined }}>
         {/* Calendar panel */}
         <div className="panel" style={{ padding: 16, flexShrink: 0 }}>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>{t("schedule.calendar")}</div>
@@ -639,7 +652,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       <ShiftModal
         open={modalOpen} editingShift={editingShift} form={modalForm} setForm={setModalForm}

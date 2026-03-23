@@ -788,3 +788,87 @@
     font-size: 11px;
   }
 }
+
+@media (max-width: 480px) {
+  .clinic-schedule-wrapper {
+    --cs-topbar-h: auto;
+  }
+  .cs-topbar {
+    padding: 8px 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .cs-topbar-left {
+    gap: 6px;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .cs-topbar > .cs-btn {
+    font-size: 10px;
+    padding: 5px 8px;
+    gap: 4px;
+  }
+  .cs-topbar > .cs-btn span:not(.cs-btn-icon) {
+    display: none;
+  }
+  .cs-date-display {
+    font-size: 11px;
+    min-width: 90px;
+    padding: 5px 6px;
+  }
+  .cs-nav-arrow {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+  .cs-btn {
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+  .cs-right-panel {
+    display: none;
+  }
+  .cs-right-panel.mobile-visible {
+    display: flex;
+    width: 100%;
+    max-height: 35vh;
+  }
+  .cs-doc-header-cell,
+  .cs-doc-col {
+    min-width: 90px;
+  }
+  .cs-time-col,
+  .cs-time-col-header {
+    width: 36px;
+  }
+  .cs-time-slot-label {
+    font-size: 7px;
+    padding-top: 4px;
+  }
+  .cs-dh-name {
+    font-size: 10px;
+  }
+  .cs-dh-count {
+    font-size: 8px;
+  }
+  .cs-apt {
+    padding: 4px 5px;
+  }
+  .cs-apt-time {
+    font-size: 7px;
+  }
+  .cs-apt-name {
+    font-size: 9px;
+  }
+  .cs-modal {
+    width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .cs-field-row {
+    grid-template-columns: 1fr;
+  }
+  .cs-topbar-sub {
+    display: none;
+  }
+}

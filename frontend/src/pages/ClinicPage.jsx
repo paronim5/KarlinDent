@@ -253,7 +253,7 @@ export default function ClinicPage() {
                       <div className="stat-strip" style={{ gridTemplateColumns: '1fr 1fr' }}>
                           <div className="stat-card s-green">
                               <div className="stat-label">{t("clinic.financial.net_profit")}</div>
-                              <div className="stat-value">{formatCurrency(dashboard.financial_overview.net_profit)}</div>
+                              <div className="stat-value" style={{ fontSize: 'clamp(13px, 2.5vw, 22px)', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.2 }}>{formatCurrency(dashboard.financial_overview.net_profit)}</div>
                           </div>
                           <div className="stat-card s-orange">
                               <div className="stat-label">{t("clinic.financial.lab_ratio")}</div>
@@ -420,21 +420,21 @@ export default function ClinicPage() {
                           </div>
                       </div>
                       <div>
-                          <div className="panel-meta">{t("clinic.operations.outstanding_commission")}</div>
-                          <div style={{ maxHeight: '100px', overflowY: 'auto', marginTop: '8px' }}>
-                              {dashboard.operational_health.outstanding_commission.length > 0 ? (
+                          <div className="panel-meta">{t("clinic.operations.lab_usage_by_doctor", { defaultValue: "Lab Usage by Doctor" })}</div>
+                          <div style={{ maxHeight: '140px', overflowY: 'auto', marginTop: '8px' }}>
+                              {dashboard.operational_health.doctor_lab_usage && dashboard.operational_health.doctor_lab_usage.length > 0 ? (
                                   <table className="data-table">
                                       <tbody>
-                                          {dashboard.operational_health.outstanding_commission.map(c => (
-                                              <tr key={c.id}>
-                                                  <td style={{ padding: '6px' }}>{c.name}</td>
-                                                  <td style={{ padding: '6px', textAlign: 'right', color: 'var(--red)' }} className="mono">{formatCurrency(c.amount)}</td>
+                                          {dashboard.operational_health.doctor_lab_usage.map(d => (
+                                              <tr key={d.id}>
+                                                  <td style={{ padding: '6px' }}>{d.name}</td>
+                                                  <td style={{ padding: '6px', textAlign: 'right', color: 'var(--blue)' }} className="mono">{formatCurrency(d.total_lab)}</td>
                                               </tr>
                                           ))}
                                       </tbody>
                                   </table>
                               ) : (
-                                  <div className="text-subtext">{t("common.none")}</div>
+                                  <div className="text-subtext">{t("common.no_data", { defaultValue: "No lab data" })}</div>
                               )}
                           </div>
                       </div>

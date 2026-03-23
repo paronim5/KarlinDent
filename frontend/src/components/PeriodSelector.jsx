@@ -27,7 +27,7 @@ export default function PeriodSelector({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+    <div className="period-selector" style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
       <div className="date-strip">
         {options.map(p => (
           <button

@@ -839,10 +839,11 @@ select.form-input { cursor: pointer; }
   .doc-actions .pay-btn { flex: 1; text-align: center; }
   .topbar-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
   .btn, .date-chip, .period-btn { min-height: var(--touch-target); }
+  .period-selector { width: 100%; align-items: stretch !important; }
   .date-strip { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .date-strip--years { display: flex; flex-wrap: wrap; grid-template-columns: unset; width: auto; }
+  .date-strip--years { display: flex; flex-wrap: wrap; grid-template-columns: unset; width: 100%; }
   .date-chip { min-width: 0; text-align: center; }
-  .date-strip--years .date-chip { min-width: 60px; flex: 0 0 auto; }
+  .date-strip--years .date-chip { flex: 1 1 70px; }
   .form-grid { grid-template-columns: 1fr; }
   .income-form-grid { grid-template-columns: 1fr !important; gap: 1rem !important; }
   .income-form-actions { justify-content: stretch !important; }
@@ -885,9 +886,9 @@ select.form-input { cursor: pointer; }
   .btn { width: 100%; justify-content: center; }
   .topbar-actions { gap: 0.5rem; }
   .date-strip { width: 100%; }
-  .date-strip--years { width: auto; }
+  .date-strip--years { width: 100%; }
   .date-chip { flex: 1; text-align: center; }
-  .date-strip--years .date-chip { flex: 0 0 auto; }
+  .date-strip--years .date-chip { flex: 1 1 60px; }
 
   /* Dashboard small screen fixes */
   .stat-value { font-size: 1rem; }

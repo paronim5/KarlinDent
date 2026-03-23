@@ -3,14 +3,18 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PeriodSelector from "./PeriodSelector";
 import ThemeSwitcher from "./ThemeSwitcher";
+import { useApi } from "../api/client";
 
 export default function Layout({ children }) {
   const mobileBreakpoint = 834;
   const { t, i18n } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
+  const api = useApi();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [period, setPeriod] = useState(() => localStorage.getItem("globalPeriod") || "month");
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+  const [availableYears, setAvailableYears] = useState([]);
   const touchStartRef = useRef(null);
   const touchCurrentRef = useRef(null);
   
@@ -27,7 +31,7 @@ export default function Layout({ children }) {
   const currentMonthLabel = now.toLocaleDateString(dateLocale, { month: "short", year: "numeric" }).toUpperCase();
   const currentMonthLabelFull = now.toLocaleDateString(dateLocale, { month: "long", year: "numeric" }).toUpperCase();
 
-  const computeRange = (p) => {
+  const computeRange = (p, yearOverride) => {
     const now = new Date();
     const to = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString().slice(0,10);
     let from;
@@ -41,10 +45,36 @@ export default function Layout({ children }) {
       const d = new Date(to);
       from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0,10);
     } else {
-      const d = new Date(to);
-      from = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)).toISOString().slice(0,10);
+      // year period: use selectedYear (or yearOverride)
+      const yr = yearOverride !== undefined ? yearOverride : selectedYear;
+      from = `${yr}-01-01`;
+      // if selected year is current year, to = today; else to = Dec 31
+      const toDate = yr === now.getFullYear() ? to : `${yr}-12-31`;
+      return { from, to: toDate };
     }
     return { from, to };
+  };
+
+  // Fetch years that have income data
+  useEffect(() => {
+    api.get("/clinic/available-years").then(years => {
+      if (Array.isArray(years) && years.length) {
+        setAvailableYears(years);
+        // If current selectedYear has no data, default to most recent year with data
+        if (!years.includes(selectedYear)) setSelectedYear(years[0]);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleYearChange = (yr) => {
+    setSelectedYear(yr);
+    const { from, to } = computeRange("year", yr);
+    const url = new URL(window.location.href);
+    url.searchParams.set("from", from);
+    url.searchParams.set("to", to);
+    window.history.replaceState({}, "", url);
+    const ev = new CustomEvent("periodChanged", { detail: { from, to, period: "year", year: yr } });
+    window.dispatchEvent(ev);
   };
 
   useEffect(() => {
@@ -267,10 +297,13 @@ export default function Layout({ children }) {
           </div>
           <div className="topbar-actions">
             {showPeriod && (
-              <PeriodSelector 
-                value={period} 
-                onChange={setPeriod} 
-                options={["day", "week", "month", "year"]} 
+              <PeriodSelector
+                value={period}
+                onChange={setPeriod}
+                options={["day", "week", "month", "year"]}
+                availableYears={availableYears}
+                selectedYear={selectedYear}
+                onYearChange={handleYearChange}
               />
             )}
             <button className="btn btn-ghost"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> {t("nav.export")}</button>

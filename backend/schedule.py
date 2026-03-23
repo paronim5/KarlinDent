@@ -414,6 +414,19 @@ def create_shift():
         if not cur.fetchone():
             return jsonify({"error": "staff_not_found"}), 404
         
+        # One shift per day rule: check if staff already has a shift on this calendar day
+        cur.execute(
+            """
+            SELECT id FROM shifts
+            WHERE staff_id = %s
+              AND start_time::date = %s::date
+              AND status != 'declined'
+            """,
+            (staff_id, start_time)
+        )
+        if cur.fetchone():
+            return jsonify({"error": "staff_already_has_shift_this_day"}), 409
+
         conflicts = check_conflicts(cur, staff_id, start_time, end_time)
         if conflicts and not data.get("force", False):
             return jsonify({"error": "conflict_detected", "conflicts": conflicts}), 409

@@ -8,8 +8,13 @@ const SLOT_H = END_H - START_H;
 const SNAP_MIN = 15; // snap to 15-minute increments
 
 const f2 = (n) => String(n).padStart(2, "0");
-/** Format a Date as a local ISO string (no timezone suffix) so the server stores wall-clock time. */
-const toLocalISO = (d) => `${d.getFullYear()}-${f2(d.getMonth() + 1)}-${f2(d.getDate())}T${f2(d.getHours())}:${f2(d.getMinutes())}:${f2(d.getSeconds())}`;
+/** Format a Date as a timezone-aware ISO string so the server stores the correct wall-clock time. */
+const toLocalISO = (d) => {
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? "+" : "-";
+  const abs = Math.abs(off);
+  return `${d.getFullYear()}-${f2(d.getMonth() + 1)}-${f2(d.getDate())}T${f2(d.getHours())}:${f2(d.getMinutes())}:${f2(d.getSeconds())}${sign}${f2(Math.floor(abs / 60))}:${f2(abs % 60)}`;
+};
 const toM = (h, m) => h * 60 + m;
 const durH = (start, end) => {
   const mins = (end - start) / 60000;
@@ -341,14 +346,20 @@ export default function ClinicSchedule({ api: injectedApi }) {
     setSidebarDrag(null);
     setDropTarget(null);
     if (!staffId) return;
-    // Create 9:00-20:00 shift
+    // If person already has a shift today, open edit modal instead of creating
+    const existing = shifts.find(sh => sh.staff_id === staffId && sameDay(new Date(sh.start), date));
+    if (existing) {
+      openModalRef.current(existing);
+      return;
+    }
+    // Create 9:00-17:00 shift
     const start = new Date(date); start.setHours(9, 0, 0, 0);
-    const end = new Date(date); end.setHours(20, 0, 0, 0);
+    const end = new Date(date); end.setHours(17, 0, 0, 0);
     try {
       await api.post("/schedule", { staff_id: staffId, start_time: toLocalISO(start), end_time: toLocalISO(end), note: "", force: true });
       await fetchShifts();
     } catch (err) { alert(t("schedule.errors.save_shift", { message: err.message || "Unknown error" })); }
-  }, [api, date, fetchShifts, t]);
+  }, [api, date, fetchShifts, shifts, t]);
 
   const onTimelineDragEnd = useCallback(() => {
     setSidebarDrag(null);
@@ -492,6 +503,11 @@ export default function ClinicSchedule({ api: injectedApi }) {
                   onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropTarget(null); }}
                   onClick={(e) => {
                     if (dragRef.current) return;
+                    // One shift per day: if person already has a shift, edit it instead of creating new
+                    if (memberShifts.length > 0) {
+                      openModal(memberShifts[0]);
+                      return;
+                    }
                     const r = e.currentTarget.getBoundingClientRect();
                     const hour = Math.max(START_H, Math.min(END_H - 1, Math.floor((e.clientX - r.left) / HOUR_W) + START_H));
                     openModal(null, member.id, hour);
@@ -607,7 +623,11 @@ export default function ClinicSchedule({ api: injectedApi }) {
                   <div className="payroll-name">{m.first_name} {m.last_name}</div>
                   <div className="payroll-detail">{m.role}</div>
                 </div>
-                <button onClick={() => openModal(null, m.id)} title={t("schedule.add_shift")} className="btn btn-ghost" style={{ padding: "3px 8px", minHeight: 26, fontSize: 12, color: tab === "doctors" ? "var(--blue)" : "var(--green)", borderColor: tab === "doctors" ? "rgba(59,130,246,.3)" : "rgba(34,197,94,.3)" }}>
+                <button onClick={() => {
+                  const existing = shifts.find(sh => sh.staff_id === m.id && sameDay(new Date(sh.start), date));
+                  if (existing) openModal(existing);
+                  else openModal(null, m.id);
+                }} title={t("schedule.add_shift")} className="btn btn-ghost" style={{ padding: "3px 8px", minHeight: 26, fontSize: 12, color: tab === "doctors" ? "var(--blue)" : "var(--green)", borderColor: tab === "doctors" ? "rgba(59,130,246,.3)" : "rgba(34,197,94,.3)" }}>
                   +
                 </button>
               </div>

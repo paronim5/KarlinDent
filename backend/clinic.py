@@ -1475,6 +1475,28 @@ def get_day_details():
             "patient_count": patient_count,
             "appointment_types": appointment_types
         })
-        
+
+    finally:
+        release_connection(conn)
+
+
+@clinic_bp.route("/available-years", methods=["GET"])
+def get_available_years():
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT EXTRACT(YEAR FROM service_date)::int AS yr
+            FROM income_records
+            ORDER BY yr DESC
+            """
+        )
+        years = [row[0] for row in cur.fetchall()]
+        if not years:
+            years = [datetime.now().year]
+        return jsonify(years)
+    except Exception:
+        return jsonify([datetime.now().year])
     finally:
         release_connection(conn)

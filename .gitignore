@@ -23,6 +23,9 @@ outcome_full.txt
 
 # База данных и Бэкапы
 
+# AI models and tools
+everything-claude-code/
+
 # Специфическое для IDE и инструментов
 .claude/
 .vscode/

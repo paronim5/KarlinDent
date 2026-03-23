@@ -58,6 +58,16 @@ export default function Layout({ children }) {
     window.dispatchEvent(ev);
   }, [period]);
 
+  // Lock body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (isSidebarOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [isSidebarOpen]);
+
   // Listen for period changes from other components (like ClinicPage navigation)
   useEffect(() => {
     const handler = (event) => {
@@ -120,10 +130,8 @@ export default function Layout({ children }) {
       </button>
       <aside className={`sidebar ${isSidebarOpen ? "open" : ""}`}>
         <div className="logo">
-          <img src="/favicon-32x32.png" alt="Virex" className="logo-icon" />
-          <div className="logo-text">
-            VIREX
-          </div>
+          <img src="/logo-mark.svg" alt="Virex" className="logo-icon" />
+          <div className="logo-text">VIREX</div>
         </div>
 
         <nav className="nav-section">

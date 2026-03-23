@@ -14,6 +14,16 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
+function getChartColors() {
+  const theme = document.documentElement.getAttribute("data-theme") || "dark";
+  const map = {
+    dark:   { grid: "rgba(255,255,255,0.08)", ticks: "#8e8e93", legend: "#f5f5f7", tickFont: { family: "-apple-system,sans-serif", size: 12 }, legendFont: { family: "-apple-system,sans-serif", size: 12 } },
+    light:  { grid: "rgba(0,0,0,0.08)",       ticks: "#6e6e73", legend: "#1c1c1e", tickFont: { family: "-apple-system,sans-serif", size: 12 }, legendFont: { family: "-apple-system,sans-serif", size: 12 } },
+    galaxy: { grid: "rgba(77,159,255,0.12)",  ticks: "#7a9bbf", legend: "#e8f0ff", tickFont: { family: "-apple-system,sans-serif", size: 12 }, legendFont: { family: "-apple-system,sans-serif", size: 12 } },
+  };
+  return map[theme] || map.dark;
+}
+
 export default function OutcomePage() {
   const { t } = useTranslation();
   const api = useApi();
@@ -332,28 +342,29 @@ export default function OutcomePage() {
     };
   }, [records, t, from, to, period]);
 
+  const { grid, ticks, legend, tickFont, legendFont } = getChartColors();
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     onClick: handleGraphClick,
     scales: {
       x: {
-        grid: { color: "rgba(255, 215, 0, 0.1)" },
-        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+        grid: { color: grid },
+        ticks: { color: ticks, font: tickFont }
       },
       y: {
-        grid: { color: "rgba(255, 215, 0, 0.1)" },
-        ticks: { color: "#ffd700", font: { family: "VT323", size: 14 } }
+        grid: { color: grid },
+        ticks: { color: ticks, font: tickFont }
       }
     },
     plugins: {
       legend: {
         position: "bottom",
-        labels: { color: "#f5f0dc", font: { family: "Press Start 2P", size: 8 } }
+        labels: { color: legend, font: legendFont }
       },
       tooltip: {
-          titleFont: { family: "VT323", size: 14 },
-          bodyFont: { family: "VT323", size: 14 }
+          titleFont: tickFont,
+          bodyFont: tickFont
       }
     }
   };

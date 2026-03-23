@@ -468,9 +468,9 @@ export default function ClinicSchedule({ api: injectedApi }) {
             const hours = memberShifts.reduce((sum, sh) => sum + (new Date(sh.end) - new Date(sh.start)) / 3600000, 0);
             const isDoctor = tab === "doctors";
             return (
-              <div key={member.id} style={{ display: "flex", minWidth: LABEL_W + totalW, height: ROW_H, borderBottom: "1px solid var(--border)", background: idx % 2 ? "rgba(22,26,34,.4)" : "transparent" }}>
+              <div key={member.id} style={{ display: "flex", minWidth: LABEL_W + totalW, height: ROW_H, borderBottom: "1px solid var(--border)", background: idx % 2 ? "var(--hover-bg)" : "transparent" }}>
                 {/* Name */}
-                <div style={{ width: LABEL_W, flexShrink: 0, borderRight: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10, padding: "0 12px", position: "sticky", left: 0, zIndex: 4, background: idx % 2 ? "#12161d" : "var(--card)" }}>
+                <div style={{ width: LABEL_W, flexShrink: 0, borderRight: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10, padding: "0 12px", position: "sticky", left: 0, zIndex: 4, background: idx % 2 ? "var(--surface)" : "var(--card)" }}>
                   <div className="doc-avatar" style={{ background: `linear-gradient(135deg,${member.color},${member.color}88)`, width: 30, height: 30, borderRadius: 8, fontSize: 10 }}>{member.initials}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="doc-name" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{member.first_name} {member.last_name}</div>

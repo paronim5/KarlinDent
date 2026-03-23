@@ -14,6 +14,16 @@ import { useApi } from "../api/client.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
+function getChartColors() {
+  const theme = document.documentElement.getAttribute("data-theme") || "dark";
+  const map = {
+    dark:   { grid: "rgba(255,255,255,0.08)", ticks: "#8e8e93", legend: "#f5f5f7", tickFont: { family: "-apple-system,sans-serif", size: 12 }, legendFont: { family: "-apple-system,sans-serif", size: 12 } },
+    light:  { grid: "rgba(0,0,0,0.08)",       ticks: "#6e6e73", legend: "#1c1c1e", tickFont: { family: "-apple-system,sans-serif", size: 12 }, legendFont: { family: "-apple-system,sans-serif", size: 12 } },
+    galaxy: { grid: "rgba(77,159,255,0.12)",  ticks: "#7a9bbf", legend: "#e8f0ff", tickFont: { family: "-apple-system,sans-serif", size: 12 }, legendFont: { family: "-apple-system,sans-serif", size: 12 } },
+  };
+  return map[theme] || map.dark;
+}
+
 export default function StaffIncomeDashboard() {
   const api = useApi();
   const navigate = useNavigate();
@@ -24,23 +34,24 @@ export default function StaffIncomeDashboard() {
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
 
+  const { grid, ticks, legend, tickFont, legendFont } = getChartColors();
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     scales: {
       x: {
-        grid: { color: "var(--border)" },
-        ticks: { color: "var(--text-muted)", font: { family: "var(--font-ui)" } },
+        grid: { color: grid },
+        ticks: { color: ticks, font: tickFont },
       },
       y: {
-        grid: { color: "var(--border)" },
-        ticks: { color: "var(--text-muted)", font: { family: "var(--font-ui)" } },
+        grid: { color: grid },
+        ticks: { color: ticks, font: tickFont },
       },
     },
     plugins: {
       legend: {
         position: "bottom",
-        labels: { color: "var(--text)", font: { family: "var(--font-ui)" } },
+        labels: { color: legend, font: legendFont },
       },
     },
   };

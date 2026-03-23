@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json vite.config.mjs index.html /app/
 COPY src /app/src
+COPY public /app/public
 
 RUN npm ci --no-audit --no-fund && npm run build
 

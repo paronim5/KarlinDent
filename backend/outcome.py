@@ -188,6 +188,36 @@ def add_outcome_record():
     return jsonify({"status": "ok", "id": new_id}), 201
 
 
+@outcome_bp.route("/records/<int:record_id>", methods=["DELETE"])
+def delete_outcome_record(record_id: int):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM outcome_records WHERE id = %s RETURNING id", (record_id,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        conn.commit()
+    finally:
+        release_connection(conn)
+    return jsonify({"status": "ok"})
+
+
+@outcome_bp.route("/salaries/<int:payment_id>", methods=["DELETE"])
+def delete_salary_payment(payment_id: int):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM salary_payments WHERE id = %s RETURNING id", (payment_id,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        conn.commit()
+    finally:
+        release_connection(conn)
+    return jsonify({"status": "ok"})
+
+
 @outcome_bp.route("/salaries", methods=["POST"])
 def add_salary_payment():
     return staff_pay_salary()

@@ -779,13 +779,39 @@ def get_dashboard_data():
                 (start_date, end_date),
             )
             lab_total = float(cur.fetchone()[0] or 0)
+
+            cur.execute(
+                """
+                SELECT s.id, s.first_name, s.last_name,
+                       COALESCE(SUM(ir.lab_cost), 0) AS total_lab,
+                       COUNT(ir.id) AS record_count
+                FROM income_records ir
+                JOIN staff s ON s.id = ir.doctor_id
+                JOIN staff_roles r ON r.id = s.role_id
+                WHERE r.name = 'doctor'
+                  AND ir.service_date BETWEEN %s AND %s
+                GROUP BY s.id, s.first_name, s.last_name
+                ORDER BY total_lab DESC
+                """,
+                (start_date, end_date),
+            )
+            doctor_lab_usage = [
+                {
+                    "id": int(row[0]),
+                    "name": f"{row[1]} {row[2]}".strip(),
+                    "total_lab": float(row[3] or 0),
+                    "record_count": int(row[4] or 0),
+                }
+                for row in cur.fetchall()
+            ]
         else:
             lab_total = 0.0
-            
+            doctor_lab_usage = []
+
         lab_ratio = round((lab_total / total_income) * 100, 2) if total_income > 0 else 0.0
         cash_ratio = round((cash_total / total_income) * 100, 2) if total_income > 0 else 0.0
         card_ratio = round((card_total / total_income) * 100, 2) if total_income > 0 else 0.0
-        
+
         financial_overview = {
             "net_profit": stats["net_profit"],
             "lab_ratio": lab_ratio,
@@ -1192,7 +1218,7 @@ def get_dashboard_data():
         "expense_analysis": expense_analysis,
         "operational_health": {
             "busiest_days": [{"dow": int(d.get("dow", 0)), "count": int(d.get("count", 0))} for d in busiest_days] if busiest_days else [],
-            "outstanding_commission": outstanding_commission,
+            "doctor_lab_usage": doctor_lab_usage,
             "days_since_last_salary": days_since_last_salary
         }
     })

@@ -3,6 +3,32 @@
 This guide walks you through cloning the project on your AWS server and loading the showcase data.
 
 ---
+ubuntu@ip-172-31-83-66:~/KarlinDent$ sudo docker compose exec -T db psql -U policlinic -d policlinic < test_data.sql
+BEGIN
+INSERT 0 0
+INSERT 0 1
+INSERT 0 5
+INSERT 0 5
+INSERT 0 10
+INSERT 0 20
+INSERT 0 112
+INSERT 0 35
+INSERT 0 25
+ERROR:  relation "staff_timesheets" does not exist
+LINE 1: INSERT INTO staff_timesheets (staff_id, work_date, start_tim...
+                    ^
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
 
 ## Prerequisites
 

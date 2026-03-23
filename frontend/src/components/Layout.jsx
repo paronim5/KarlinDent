@@ -13,17 +13,9 @@ export default function Layout({ children }) {
   const api = useApi();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [period, setPeriod] = useState(() => localStorage.getItem("globalPeriod") || "month");
-  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
-  const [availableYears, setAvailableYears] = useState([]);
+  const [viewDate, setViewDate] = useState(() => new Date());
   const touchStartRef = useRef(null);
   const touchCurrentRef = useRef(null);
-  
-  const labels = useMemo(() => ({
-    year: t("income.period.year"),
-    month: t("income.period.month"),
-    week: t("income.period.week"),
-    day: t("income.period.day")
-  }), [t]);
 
   // Dynamic current month labels — locale-aware via i18n language
   const dateLocale = i18n.language === "cs" ? "cs-CZ" : i18n.language === "ru" ? "ru-RU" : "en-US";
@@ -31,62 +23,54 @@ export default function Layout({ children }) {
   const currentMonthLabel = now.toLocaleDateString(dateLocale, { month: "short", year: "numeric" }).toUpperCase();
   const currentMonthLabelFull = now.toLocaleDateString(dateLocale, { month: "long", year: "numeric" }).toUpperCase();
 
-  const computeRange = (p, yearOverride) => {
-    const now = new Date();
-    const to = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString().slice(0,10);
-    let from;
+  const computeRange = (p, refDate = viewDate) => {
+    const d = new Date(Date.UTC(refDate.getFullYear(), refDate.getMonth(), refDate.getDate()));
     if (p === "day") {
-      from = to;
+      const s = d.toISOString().slice(0, 10);
+      return { from: s, to: s };
     } else if (p === "week") {
-      const d = new Date(to);
-      d.setUTCDate(d.getUTCDate() - 6);
-      from = d.toISOString().slice(0,10);
+      const from = new Date(d); from.setUTCDate(from.getUTCDate() - 6);
+      return { from: from.toISOString().slice(0, 10), to: d.toISOString().slice(0, 10) };
     } else if (p === "month") {
-      const d = new Date(to);
-      from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0,10);
+      const from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+      const to = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+      return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
     } else {
-      // year period: use selectedYear (or yearOverride)
-      const yr = yearOverride !== undefined ? yearOverride : selectedYear;
-      from = `${yr}-01-01`;
-      // if selected year is current year, to = today; else to = Dec 31
-      const toDate = yr === now.getFullYear() ? to : `${yr}-12-31`;
-      return { from, to: toDate };
+      const yr = d.getUTCFullYear();
+      return { from: `${yr}-01-01`, to: `${yr}-12-31` };
     }
-    return { from, to };
   };
 
-  // Fetch years that have income data
-  useEffect(() => {
-    api.get("/clinic/available-years").then(years => {
-      if (Array.isArray(years) && years.length) {
-        setAvailableYears(years);
-        // If current selectedYear has no data, default to most recent year with data
-        if (!years.includes(selectedYear)) setSelectedYear(years[0]);
-      }
-    }).catch(() => {});
-  }, []);
-
-  const handleYearChange = (yr) => {
-    setSelectedYear(yr);
-    const { from, to } = computeRange("year", yr);
-    const url = new URL(window.location.href);
-    url.searchParams.set("from", from);
-    url.searchParams.set("to", to);
-    window.history.replaceState({}, "", url);
-    const ev = new CustomEvent("periodChanged", { detail: { from, to, period: "year", year: yr } });
-    window.dispatchEvent(ev);
+  const navigatePeriod = (direction) => {
+    setViewDate(prev => {
+      const d = new Date(prev);
+      if (period === "day") d.setDate(d.getDate() + direction);
+      else if (period === "week") d.setDate(d.getDate() + direction * 7);
+      else if (period === "month") d.setMonth(d.getMonth() + direction);
+      else if (period === "year") d.setFullYear(d.getFullYear() + direction);
+      return d;
+    });
   };
+
+  // Compute the current period label for the topbar sub-title
+  const periodRangeLabel = useMemo(() => {
+    const { from, to } = computeRange(period, viewDate);
+    if (period === "day") return from;
+    if (period === "year") return String(viewDate.getFullYear());
+    return `${from} – ${to}`;
+  }, [period, viewDate]);
 
   useEffect(() => {
     localStorage.setItem("globalPeriod", period);
-    const { from, to } = computeRange(period);
+    const { from, to } = computeRange(period, viewDate);
     const url = new URL(window.location.href);
     url.searchParams.set("from", from);
     url.searchParams.set("to", to);
     window.history.replaceState({}, "", url);
-    const ev = new CustomEvent("periodChanged", { detail: { from, to, period }});
+    const yr = period === "year" ? viewDate.getFullYear() : undefined;
+    const ev = new CustomEvent("periodChanged", { detail: { from, to, period, ...(yr !== undefined ? { year: yr } : {}) } });
     window.dispatchEvent(ev);
-  }, [period]);
+  }, [period, viewDate]);
 
   // Lock body scroll when sidebar is open on mobile
   useEffect(() => {
@@ -293,20 +277,23 @@ export default function Layout({ children }) {
                location.pathname.startsWith("/my-income") ? t("nav.my_income") :
                t("nav.dashboard")}
             </div>
-            <div className="topbar-sub">{currentMonthLabelFull} · {t("common.period_active")}</div>
+            <div className="topbar-sub">{showPeriod ? periodRangeLabel : currentMonthLabelFull}</div>
           </div>
           <div className="topbar-actions">
             {showPeriod && (
-              <PeriodSelector
-                value={period}
-                onChange={setPeriod}
-                options={["day", "week", "month", "year"]}
-                availableYears={availableYears}
-                selectedYear={selectedYear}
-                onYearChange={handleYearChange}
-              />
+              <>
+                <PeriodSelector
+                  value={period}
+                  onChange={(p) => { setPeriod(p); setViewDate(new Date()); }}
+                  options={["day", "week", "month", "year"]}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button className="btn btn-ghost" style={{ padding: "6px 10px" }} onClick={() => navigatePeriod(-1)} aria-label="Previous period">‹</button>
+                  <span style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--subtext)", minWidth: "80px", textAlign: "center", whiteSpace: "nowrap" }}>{periodRangeLabel}</span>
+                  <button className="btn btn-ghost" style={{ padding: "6px 10px" }} onClick={() => navigatePeriod(1)} aria-label="Next period">›</button>
+                </div>
+              </>
             )}
-            <button className="btn btn-ghost"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> {t("nav.export")}</button>
             {location.pathname.startsWith("/outcome") ? (
               <button className="btn btn-primary" onClick={() => navigate("/outcome/add")}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg> {t("nav.add_outcome", {defaultValue: "Add Outcome"})}</button>
             ) : (

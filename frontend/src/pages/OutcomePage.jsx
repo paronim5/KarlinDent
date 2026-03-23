@@ -370,18 +370,7 @@ export default function OutcomePage() {
           bodyFont: tickFont
       },
       datalabels: {
-        display: (ctx) => ctx.dataset.data[ctx.dataIndex] != null && ctx.dataset.data[ctx.dataIndex] > 0,
-        anchor: "end",
-        align: "top",
-        offset: 2,
-        color: "#e03030",
-        font: { size: 10, family: "-apple-system,sans-serif", weight: "600" },
-        formatter: (value) => {
-          if (!value) return null;
-          if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-          if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
-          return `${value}`;
-        }
+        display: false
       }
     }
   };
@@ -508,6 +497,16 @@ export default function OutcomePage() {
                     {(record.amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                   </td>
                   <td className="mono">{record.date || record.expense_date}</td>
+                  <td>
+                    <button
+                      className="btn btn-danger"
+                      style={{ padding: "3px 8px", fontSize: "11px", minHeight: 0 }}
+                      disabled={deletingOutcomeIds.includes(record.id)}
+                      onClick={() => performDeleteOutcome([record.id])}
+                    >
+                      ✕
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

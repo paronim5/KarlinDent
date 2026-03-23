@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
@@ -41,6 +41,7 @@ export default function StaffRolePage() {
 
   const [editingId, setEditingId] = useState(null);
   const [period, setPeriod] = useState("month");
+  const formRef = useRef(null);
 
   const computeRange = (selectedPeriod) => {
     const now = new Date();
@@ -338,6 +339,9 @@ export default function StaffRolePage() {
       endTime: t.end_time.slice(0, 5),
       note: t.note || ""
     });
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   };
 
   const handleDelete = async (tsId) => {
@@ -581,7 +585,7 @@ export default function StaffRolePage() {
               </table>
             </div>
           </div>
-          <div className="panel-title" style={{ marginBottom: '16px' }}>{editingId ? t("staff_role.edit_shift") : t("staff_role.add_shift")}</div>
+          <div ref={formRef} className="panel-title" style={{ marginBottom: '16px' }}>{editingId ? t("staff_role.edit_shift") : t("staff_role.add_shift")}</div>
           <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div>
               <div className="form-label">{t("staff_role.shift_date")}</div>

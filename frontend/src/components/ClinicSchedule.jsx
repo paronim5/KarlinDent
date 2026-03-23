@@ -309,12 +309,11 @@ export default function ClinicSchedule({ api: injectedApi }) {
       const pd = pendingDragRef.current;
       pendingDragRef.current = null;
       if (!pd) return;
-      // Click without movement → open edit modal
+      // Click without movement — do nothing (modal only opened via sidebar + button)
       if (!pd.activated) {
         dragRef.current = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
-        if (pd.type === "move") openModalRef.current(pd.shift);
         return;
       }
       // Drag was active → commit the time change

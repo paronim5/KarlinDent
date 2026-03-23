@@ -165,18 +165,7 @@ export default function ClinicPage() {
         bodyFont: tickFont
       },
       datalabels: {
-        display: (ctx) => ctx.dataset.data[ctx.dataIndex] != null,
-        anchor: "end",
-        align: "top",
-        offset: 2,
-        color: (ctx) => ctx.dataset.borderColor,
-        font: { size: 10, family: "-apple-system,sans-serif", weight: "600" },
-        formatter: (value) => {
-          if (value == null) return null;
-          if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M Kč`;
-          if (value >= 1000) return `${(value / 1000).toFixed(0)}K Kč`;
-          return `${value} Kč`;
-        }
+        display: false
       }
     }
   };

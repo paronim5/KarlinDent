@@ -347,11 +347,15 @@ export default function DoctorPage() {
       if (event?.detail?.period) {
         const newPeriod = event.detail.period;
         setPeriod(newPeriod);
-        // Recalculate range locally to ensure full month/year view
-        // Layout event provides ranges capped at today, but we want full view
-        const calculated = computeRange(newPeriod, customRange);
-        setRange(calculated);
-        setSelectedDate(calculated.to);
+        // Use event's from/to directly so arrow navigation triggers a reload
+        if (event.detail.from && event.detail.to) {
+          setRange({ from: event.detail.from, to: event.detail.to });
+          setSelectedDate(event.detail.to);
+        } else {
+          const calculated = computeRange(newPeriod, customRange);
+          setRange(calculated);
+          setSelectedDate(calculated.to);
+        }
       }
     };
     const refresh = () => {

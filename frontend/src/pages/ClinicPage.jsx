@@ -69,13 +69,15 @@ export default function ClinicPage() {
     load();
   }, [period, date]);
 
-  // Listen for global period changes if any
+  // Listen for global period changes (period selector + navigation arrows)
   useEffect(() => {
     const handler = (event) => {
       if (event?.detail?.period) {
         setPeriod(event.detail.period);
-        // Year selector: update reference date so the correct year is fetched
-        if (event.detail.year !== undefined) {
+        // Use event's `to` as the reference date so arrow navigation triggers a reload
+        if (event.detail.to) {
+          setDate(event.detail.to);
+        } else if (event.detail.year !== undefined) {
           setDate(`${event.detail.year}-06-15`);
         }
       }

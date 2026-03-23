@@ -140,13 +140,17 @@ export default function OutcomePage() {
 
   useEffect(() => {
     const handler = (event) => {
-      if (event?.detail?.period) {
-        setPeriod(event.detail.period);
-        if (event.detail.year !== undefined) {
-          setViewDate(new Date(`${event.detail.year}-06-15`));
-        } else if (event.detail.date) {
-          setViewDate(new Date(event.detail.date));
-        }
+      if (!event?.detail?.period) return;
+      setPeriod(event.detail.period);
+      if (event.detail.from && event.detail.to) {
+        // Use the exact range from Layout so navigation arrows always work
+        setFrom(event.detail.from);
+        setTo(event.detail.to);
+        loadPeriodData(event.detail.from, event.detail.to);
+      } else if (event.detail.year !== undefined) {
+        setViewDate(new Date(`${event.detail.year}-06-15`));
+      } else if (event.detail.date) {
+        setViewDate(new Date(event.detail.date));
       }
     };
     window.addEventListener("periodChanged", handler);

@@ -21,6 +21,7 @@ services:
       - ./migrations/010_add_income_commission_indexes.sql:/docker-entrypoint-initdb.d/10_add_income_commission_indexes.sql:ro
       - ./migrations/011_add_staff_documents.sql:/docker-entrypoint-initdb.d/11_add_staff_documents.sql:ro
       - ./migrations/012_shift_status_and_salary_enhancements.sql:/docker-entrypoint-initdb.d/12_shift_status_and_salary_enhancements.sql:ro
+      - ./migrations/013_add_staff_timesheets.sql:/docker-entrypoint-initdb.d/13_add_staff_timesheets.sql:ro
 
   backend:
     build: ./backend

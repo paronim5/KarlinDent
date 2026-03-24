@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from "chart.js";
 import { Line } from "react-chartjs-2";
+import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
@@ -19,6 +20,7 @@ function getChartColors() {
 export default function DoctorPage() {
   const { id } = useParams();
   const api = useApi();
+  const { i18n } = useTranslation();
   const storedPeriod = localStorage.getItem("globalPeriod") || "month";
 
   const [error, setError] = useState("");
@@ -428,8 +430,8 @@ export default function DoctorPage() {
 
       Object.keys(groups).sort().forEach(key => {
          const date = new Date(`${key}-01`);
-         const label = !isNaN(date.getTime()) 
-            ? date.toLocaleString('default', { month: 'long' }) 
+         const label = !isNaN(date.getTime())
+            ? date.toLocaleString(i18n.language, { month: 'long' })
             : key;
          points.push({
             label,
@@ -456,7 +458,7 @@ export default function DoctorPage() {
           
           let label = dStr;
           if (period === 'week') {
-             label = curr.toLocaleDateString('default', { weekday: 'long' });
+             label = curr.toLocaleDateString(i18n.language, { weekday: 'long' });
           } else if (period === 'month') {
              label = curr.getDate(); // 1, 2, ...
           }
@@ -472,7 +474,7 @@ export default function DoctorPage() {
       }
     }
     return points;
-  }, [hourlyData, period, trendData, selectedDate, range]);
+  }, [hourlyData, period, trendData, selectedDate, range, i18n.language]);
 
   const trendChartData = useMemo(() => {
     if (!graphPoints.length) return null;

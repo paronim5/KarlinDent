@@ -904,6 +904,7 @@ def get_dashboard_data():
                 FROM outcome_categories c
                 LEFT JOIN outcome_records o ON o.category_id = c.id
                     AND o.expense_date BETWEEN %s AND %s
+                WHERE LOWER(c.name) != 'salaries'
                 GROUP BY c.name
                 UNION ALL
                 SELECT 'Salaries' AS category, COALESCE(SUM(amount), 0) AS total

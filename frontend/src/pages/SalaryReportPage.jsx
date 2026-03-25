@@ -23,11 +23,14 @@ export default function SalaryReportPage() {
   const [signerName, setSignerName] = useState("");
   const [signedAt, setSignedAt] = useState(null);
 
+  // Lock background scroll while this overlay is open
   useEffect(() => {
-    if (!staffId) {
-      setError("Missing staff id");
-      return;
-    }
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  useEffect(() => {
+    if (!staffId) { setError("Missing staff id"); return; }
     const load = async () => {
       setLoading(true);
       setError("");
@@ -63,14 +66,12 @@ export default function SalaryReportPage() {
     ctx.lineWidth = 2;
     ctx.lineCap = "round";
     ctx.strokeStyle = "#111827";
-  }, []);
+  }, [data]);
 
   useEffect(() => {
     if (!user) return;
-    const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
-    setSignerName(fullName);
+    setSignerName([user.first_name, user.last_name].filter(Boolean).join(" ").trim());
   }, [user]);
-
 
   const getPoint = (event) => {
     const canvas = canvasRef.current;
@@ -106,17 +107,12 @@ export default function SalaryReportPage() {
     setHasSignature(true);
   };
 
-  const handlePointerUp = () => {
-    if (isDrawing) {
-      setIsDrawing(false);
-    }
-  };
+  const handlePointerUp = () => { if (isDrawing) setIsDrawing(false); };
 
   const clearSignature = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
     setHasSignature(false);
     setSignedAt(null);
   };
@@ -139,9 +135,7 @@ export default function SalaryReportPage() {
     if (user?.role) headers["X-Staff-Role"] = String(user.role);
     fetch(url, { headers })
       .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("Failed to download PDF");
-        }
+        if (!response.ok) throw new Error("Failed to download PDF");
         const blob = await response.blob();
         const downloadUrl = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -152,40 +146,64 @@ export default function SalaryReportPage() {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(downloadUrl);
       })
-      .catch((err) => {
-        setError(err.message || "Failed to download salary report");
-      });
+      .catch((err) => setError(err.message || "Failed to download salary report"));
   };
 
-  const formatCurrency = (value) =>
+  const fmt = (value) =>
     Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
 
   return (
-    <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div className="panel">
-        <div className="panel-header" style={{ justifyContent: "space-between", alignItems: "center" }}>
+    /* Full-screen backdrop */
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: "rgba(0,0,0,0.55)",
+      backdropFilter: "blur(6px)",
+      WebkitBackdropFilter: "blur(6px)",
+      display: "flex", alignItems: "flex-start", justifyContent: "center",
+      padding: "24px 16px",
+      overflowY: "auto",
+    }}>
+      {/* Modal card */}
+      <div style={{
+        width: "100%", maxWidth: 860,
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
+        borderRadius: 16,
+        display: "flex", flexDirection: "column",
+        marginBottom: 24,
+      }}>
+
+        {/* Sticky header */}
+        <div style={{
+          position: "sticky", top: 0, zIndex: 10,
+          background: "var(--bg-card)",
+          borderBottom: "1px solid var(--border)",
+          borderRadius: "16px 16px 0 0",
+          padding: "16px 20px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
           <div>
             <div className="panel-title">Salary Report</div>
-            {data && (
-              <div className="panel-meta">
-                {data.period.from} → {data.period.to}
-              </div>
-            )}
+            {data && <div className="panel-meta">{data.period.from} → {data.period.to}</div>}
           </div>
-          <div style={{ display: "flex", gap: "10px" }}>
+          <div style={{ display: "flex", gap: 10 }}>
             <button className="btn btn-ghost" onClick={downloadPdf} disabled={!data}>
               Download PDF
             </button>
             <button className="btn btn-ghost" onClick={() => navigate(-1)}>
-              Back
+              ← Back
             </button>
           </div>
         </div>
-        {loading && <div>Loading report...</div>}
-        {error && <div className="form-error">{error}</div>}
-        {data && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div className="stat-strip" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+
+        {/* Scrollable body */}
+        <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {loading && <div style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>Loading report...</div>}
+          {error && <div className="form-error">{error}</div>}
+
+          {data && (<>
+            {/* Stat strip */}
+            <div className="stat-strip" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
               <div className="stat-card s-blue">
                 <div className="stat-label">Staff</div>
                 <div className="stat-value">{data.staff.first_name} {data.staff.last_name}</div>
@@ -202,120 +220,110 @@ export default function SalaryReportPage() {
               )}
               <div className="stat-card s-green">
                 <div className="stat-label">Total Salary</div>
-                <div className="stat-value">{formatCurrency(data.summary.total_salary)}</div>
+                <div className="stat-value">{fmt(data.summary.total_salary)}</div>
               </div>
             </div>
 
+            {/* Records panel */}
             {data.role === "doctor" ? (
-              <div className="panel" style={{ background: "var(--bg-card)", padding: "16px", borderRadius: "8px" }}>
-                <div className="panel-title" style={{ marginBottom: "12px" }}>Patient Payments</div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Patient</th>
-                      <th style={{ textAlign: "right" }}>Gross</th>
-                      <th style={{ textAlign: "right" }}>Lab Fee</th>
-                      <th style={{ textAlign: "right" }}>Net</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.patients.length === 0 && (
+              <div className="panel" style={{ padding: 16 }}>
+                <div className="panel-title" style={{ marginBottom: 12 }}>Patient Payments</div>
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
                       <tr>
-                        <td colSpan={4} className="empty-state">No unpaid patient payments for this period</td>
+                        <th>Patient</th>
+                        <th style={{ textAlign: "right" }}>Gross</th>
+                        <th style={{ textAlign: "right" }}>Lab Fee</th>
+                        <th style={{ textAlign: "right" }}>Net</th>
                       </tr>
-                    )}
-                    {data.patients.map((row, idx) => (
-                      <tr key={`${row.name}-${idx}`}>
-                        <td>{row.name}</td>
-                        <td className="mono" style={{ textAlign: "right" }}>{formatCurrency(row.total_paid)}</td>
-                        <td className="mono" style={{ textAlign: "right" }}>-{formatCurrency(row.lab_fee || 0)}</td>
-                        <td className="mono" style={{ textAlign: "right" }}>{formatCurrency(row.net_paid || 0)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ marginTop: "12px", display: "grid", gap: "6px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span>Base Salary</span>
-                    <span className="mono">{formatCurrency(data.summary.base_salary)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span>Commission ({(data.summary.commission_rate * 100).toFixed(2)}%)</span>
-                    <span className="mono">{formatCurrency(data.summary.total_commission)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span>Lab Fees Deduction</span>
-                    <span className="mono">-{formatCurrency(data.summary.total_lab_fees || 0)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span>Adjustments</span>
-                    <span className="mono">{formatCurrency(data.summary.adjustments)}</span>
-                  </div>
+                    </thead>
+                    <tbody>
+                      {data.patients.length === 0 && (
+                        <tr><td colSpan={4} className="empty-state">No unpaid patient payments for this period</td></tr>
+                      )}
+                      {data.patients.map((row, idx) => (
+                        <tr key={`${row.name}-${idx}`}>
+                          <td>{row.name}</td>
+                          <td className="mono" style={{ textAlign: "right" }}>{fmt(row.total_paid)}</td>
+                          <td className="mono" style={{ textAlign: "right" }}>-{fmt(row.lab_fee || 0)}</td>
+                          <td className="mono" style={{ textAlign: "right" }}>{fmt(row.net_paid || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: 12, display: "grid", gap: 6, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                  {[
+                    ["Base Salary", fmt(data.summary.base_salary)],
+                    [`Commission (${(data.summary.commission_rate * 100).toFixed(2)}%)`, fmt(data.summary.total_commission)],
+                    ["Lab Fees Deduction", `-${fmt(data.summary.total_lab_fees || 0)}`],
+                    ["Adjustments", fmt(data.summary.adjustments)],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>{label}</span>
+                      <span className="mono">{value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : (
-              <div className="panel" style={{ background: "var(--bg-card)", padding: "16px", borderRadius: "8px" }}>
-                <div className="panel-title" style={{ marginBottom: "12px" }}>Work Schedule</div>
-                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "12px" }}>
-                  <div>
-                    <div className="stat-label">Working Days</div>
-                    <div className="stat-value">{data.summary.working_days}</div>
-                  </div>
-                  <div>
-                    <div className="stat-label">Total Hours</div>
-                    <div className="stat-value">{data.summary.total_hours}</div>
-                  </div>
-                  <div>
-                    <div className="stat-label">Hourly Rate</div>
-                    <div className="stat-value">{formatCurrency(data.summary.base_salary)}</div>
-                  </div>
+              <div className="panel" style={{ padding: 16 }}>
+                <div className="panel-title" style={{ marginBottom: 12 }}>Work Schedule</div>
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+                  {[
+                    ["Working Days", data.summary.working_days],
+                    ["Total Hours", data.summary.total_hours],
+                    ["Hourly Rate", fmt(data.summary.base_salary)],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <div className="stat-label">{label}</div>
+                      <div className="stat-value">{value}</div>
+                    </div>
+                  ))}
                 </div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Time Range</th>
-                      <th>Hours</th>
-                      <th>Note</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.timesheets.length === 0 && (
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
                       <tr>
-                        <td colSpan={4} className="empty-state">No timesheets for this period</td>
+                        <th>Date</th>
+                        <th>Time Range</th>
+                        <th>Hours</th>
+                        <th>Note</th>
                       </tr>
-                    )}
-                    {data.timesheets.map((row, idx) => (
-                      <tr key={`${row.date}-${idx}`}>
-                        <td className="mono">{row.date}</td>
-                        <td className="mono">{row.start_time} - {row.end_time}</td>
-                        <td className="mono">{row.hours.toFixed(2)}</td>
-                        <td>{row.note || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.timesheets.length === 0 && (
+                        <tr><td colSpan={4} className="empty-state">No timesheets for this period</td></tr>
+                      )}
+                      {data.timesheets.map((row, idx) => (
+                        <tr key={`${row.date}-${idx}`}>
+                          <td className="mono">{row.date}</td>
+                          <td className="mono">{row.start_time} - {row.end_time}</td>
+                          <td className="mono">{row.hours.toFixed(2)}</td>
+                          <td>{row.note || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
-            <div className="panel" style={{ background: "var(--bg-card)", padding: "16px", borderRadius: "8px" }}>
-              <div className="panel-title" style={{ marginBottom: "8px" }}>Signature</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "center" }}>
-                <div style={{ flex: "1 1 280px" }}>
+            {/* Signature */}
+            <div className="panel" style={{ padding: 16 }}>
+              <div className="panel-title" style={{ marginBottom: 8 }}>Signature</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+                <div style={{ flex: "1 1 240px" }}>
                   <div className="form-label">Signer Name</div>
-                  <input
-                    className="form-input"
-                    value={signerName}
-                    placeholder="Type full name"
-                    readOnly
-                  />
+                  <input className="form-input" value={signerName} placeholder="Full name" readOnly />
                 </div>
-                <div style={{ flex: "1 1 360px" }}>
+                <div style={{ flex: "1 1 340px" }}>
                   <div className="form-label">Signature Field</div>
-                  <div style={{ border: "1px solid var(--border)", borderRadius: "8px", padding: "8px", background: "var(--surface)" }}>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, background: "var(--surface)" }}>
                     <canvas
                       ref={canvasRef}
-                      style={{ width: "100%", height: "140px", display: "block", cursor: "crosshair" }}
+                      style={{ width: "100%", height: 140, display: "block", cursor: "crosshair" }}
                       onMouseDown={handlePointerDown}
                       onMouseMove={handlePointerMove}
                       onMouseUp={handlePointerUp}
@@ -327,7 +335,7 @@ export default function SalaryReportPage() {
                   </div>
                 </div>
               </div>
-              <div style={{ marginTop: "12px", display: "flex", gap: "10px", alignItems: "center" }}>
+              <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <button type="button" className="btn btn-secondary" onClick={clearSignature}>
                   Clear Signature
                 </button>
@@ -340,14 +348,14 @@ export default function SalaryReportPage() {
                   Confirm Signature
                 </button>
                 {signedAt && (
-                  <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
                     Signed at {new Date(signedAt).toLocaleString()}
                   </div>
                 )}
               </div>
             </div>
-          </div>
-        )}
+          </>)}
+        </div>
       </div>
     </div>
   );

@@ -71,17 +71,6 @@ export default function SalaryReportPage() {
     setSignerName(fullName);
   }, [user]);
 
-  useEffect(() => {
-    const root = document.getElementById("root");
-    document.documentElement.classList.add("salary-signing-static");
-    document.body.classList.add("salary-signing-static");
-    root?.classList.add("salary-signing-static");
-    return () => {
-      document.documentElement.classList.remove("salary-signing-static");
-      document.body.classList.remove("salary-signing-static");
-      root?.classList.remove("salary-signing-static");
-    };
-  }, []);
 
   const getPoint = (event) => {
     const canvas = canvasRef.current;

@@ -331,7 +331,7 @@ export default function StaffPage() {
     <>
       {error && <div className="form-error">{t("staff_role.system_error", { error })}</div>}
 
-      <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="stat-card s-orange">
           <div className="stat-icon">◉</div>
           <div className="stat-label">{t("staff.stats.active_staff", { defaultValue: "Active Staff" })}</div>
@@ -341,6 +341,11 @@ export default function StaffPage() {
           <div className="stat-icon">↙</div>
           <div className="stat-label">{t("staff.stats.total_paid", { defaultValue: "Total Paid Salary" })}</div>
           <div className="stat-value">{formatCurrency(stats?.total_paid_salary)}</div>
+        </div>
+        <div className="stat-card s-blue">
+          <div className="stat-icon">◷</div>
+          <div className="stat-label">{t("staff.stats.total_unpaid", { defaultValue: "Total Unpaid Salary" })}</div>
+          <div className="stat-value" style={{ color: "var(--red)" }}>{formatCurrency(stats?.total_unpaid_salary)}</div>
         </div>
         <div className="stat-card s-green">
           <div className="stat-icon">◈</div>

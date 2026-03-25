@@ -1691,8 +1691,52 @@ def staff_stats():
         cur.execute("SELECT COUNT(*) FROM staff WHERE is_active = TRUE")
         staff_count = cur.fetchone()[0]
 
+        # Total unpaid salary across all active staff
+        try:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(
+                    CASE WHEN r.name = 'doctor'
+                         THEN (
+                             (SELECT COALESCE(SUM(amount - COALESCE(lab_cost, 0)), 0)
+                              FROM income_records
+                              WHERE doctor_id = s.id AND salary_payment_id IS NULL)
+                             * s.commission_rate
+                             + (SELECT COALESCE(SUM(amount), 0)
+                                FROM salary_adjustments
+                                WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL)
+                         )
+                         ELSE (
+                             (SELECT COALESCE(SUM(
+                                 (EXTRACT(EPOCH FROM (sh.end_time - sh.start_time)) / 3600.0)
+                                 * (COALESCE(sh.completion_percent, 100) / 100.0)
+                                 * CASE WHEN EXTRACT(ISODOW FROM sh.start_time) >= 6
+                                        THEN COALESCE(s.weekend_salary, 200)
+                                        ELSE s.base_salary END
+                             ), 0)
+                              FROM shifts sh
+                              WHERE sh.staff_id = s.id
+                                AND sh.status IN ('accepted', 'approved')
+                                AND sh.salary_payment_id IS NULL)
+                             + (SELECT COALESCE(SUM(amount), 0)
+                                FROM salary_adjustments
+                                WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL)
+                         )
+                    END
+                ), 0) AS total_unpaid
+                FROM staff s
+                JOIN staff_roles r ON r.id = s.role_id
+                WHERE s.is_active = TRUE
+                """
+            )
+            total_unpaid = float(cur.fetchone()[0])
+        except Exception:
+            conn.rollback()
+            total_unpaid = 0.0
+
         return jsonify({
             "total_paid_salary": round(total_paid, 2),
+            "total_unpaid_salary": round(total_unpaid, 2),
             "total_worked_hours": round(total_hours, 2),
             "staff_count": staff_count,
             "period_from": period_from.isoformat(),

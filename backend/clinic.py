@@ -896,17 +896,23 @@ def get_dashboard_data():
             for row in cur.fetchall()
         ]
         
-        # Expense Analysis — LEFT JOIN so all categories appear even with 0
+        # Expense Analysis — outcome categories + salaries as a separate row
         cur.execute(
             """
-            SELECT c.name, COALESCE(SUM(o.amount), 0) AS total
-            FROM outcome_categories c
-            LEFT JOIN outcome_records o ON o.category_id = c.id
-                AND o.expense_date BETWEEN %s AND %s
-            GROUP BY c.name
+            SELECT category, total FROM (
+                SELECT c.name AS category, COALESCE(SUM(o.amount), 0) AS total
+                FROM outcome_categories c
+                LEFT JOIN outcome_records o ON o.category_id = c.id
+                    AND o.expense_date BETWEEN %s AND %s
+                GROUP BY c.name
+                UNION ALL
+                SELECT 'Salaries' AS category, COALESCE(SUM(amount), 0) AS total
+                FROM salary_payments
+                WHERE payment_date BETWEEN %s AND %s
+            ) all_expenses
             ORDER BY total DESC
             """,
-            (start_date, end_date),
+            (start_date, end_date, start_date, end_date),
         )
         expense_by_category = [{"category": row[0], "total": float(row[1])} for row in cur.fetchall()]
         salary_ratio = round((total_salaries / total_income) * 100, 2) if total_income > 0 else 0.0

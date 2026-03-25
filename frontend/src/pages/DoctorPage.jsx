@@ -431,7 +431,7 @@ export default function DoctorPage() {
       Object.keys(groups).sort().forEach(key => {
          const date = new Date(`${key}-01`);
          const label = !isNaN(date.getTime())
-            ? date.toLocaleString(i18n.language, { month: 'long' })
+            ? date.toLocaleString(i18n.language, { month: 'long' }).replace(/^./, c => c.toUpperCase())
             : key;
          points.push({
             label,
@@ -458,7 +458,7 @@ export default function DoctorPage() {
           
           let label = dStr;
           if (period === 'week') {
-             label = curr.toLocaleDateString(i18n.language, { weekday: 'long' });
+             label = curr.toLocaleDateString(i18n.language, { weekday: 'long' }).replace(/^./, c => c.toUpperCase());
           } else if (period === 'month') {
              label = curr.getDate(); // 1, 2, ...
           }

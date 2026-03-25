@@ -26,7 +26,7 @@ function getChartColors() {
 }
 
 export default function OutcomePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const api = useApi();
   const today = new Date().toISOString().slice(0, 10);
   const storedPeriod = localStorage.getItem("globalPeriod") || "month";
@@ -319,11 +319,11 @@ export default function OutcomePage() {
         if (isDayView) return k; // HH:00
         if (isYearView) {
             const date = new Date(`${k}-01`);
-            return date.toLocaleString('default', { month: 'long' });
+            return date.toLocaleString(i18n.language, { month: 'long' }).replace(/^./, c => c.toUpperCase());
         }
         const date = new Date(k);
-        return period === 'week' 
-            ? date.toLocaleDateString('default', { weekday: 'long' }) 
+        return period === 'week'
+            ? date.toLocaleDateString(i18n.language, { weekday: 'long' }).replace(/^./, c => c.toUpperCase())
             : date.getDate(); 
     });
 

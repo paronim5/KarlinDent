@@ -40,7 +40,9 @@ export default function AddIncomePage() {
   const [doctors, setDoctors] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [normalizedHint, setNormalizedHint] = useState("");
   const [receiptReasons, setReceiptReasons] = useState([]);
   const [medicines, setMedicines] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -180,6 +182,9 @@ export default function AddIncomePage() {
     return () => clearTimeout(handle);
   }, [form.patientInput]);
 
+  const removeDiacritics = (str) =>
+    str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
   const parsedName = useMemo(() => {
     const v = (form.patientInput || "").trim().replace(/\s+/g, " ");
     if (!v) return { last: "", first: null };
@@ -311,6 +316,8 @@ export default function AddIncomePage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    setSubmitted(true);
+    if (!isFormValid) return;
     if (isEdit && form.isPaid) {
         setShowEditModal(true);
     } else {
@@ -354,12 +361,23 @@ export default function AddIncomePage() {
               aria-label={t("income.form.patient")}
               aria-invalid={!isPatientValid}
               value={form.patientInput}
-              onChange={(e) => setForm((p) => ({ ...p, patientInput: e.target.value, patientLocked: false, lockedPatient: null }))}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const normalized = removeDiacritics(raw);
+                if (normalized !== raw) setNormalizedHint(raw);
+                else setNormalizedHint("");
+                setForm((p) => ({ ...p, patientInput: normalized, patientLocked: false, lockedPatient: null }));
+              }}
               onKeyDown={onPatientKeyDown}
               onBlur={onPatientBlur}
               disabled={form.patientLocked || saving}
               autoComplete="off"
             />
+            {normalizedHint && (
+              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                ← {normalizedHint}
+              </div>
+            )}
             {searching && (
               <div style={{ position: 'absolute', right: '10px', top: '38px', color: 'var(--text-secondary)' }}>
                 <span style={{ fontSize: '12px' }}>...</span>
@@ -404,11 +422,12 @@ export default function AddIncomePage() {
                         patientInput: name,
                         patientLocked: true,
                         lockedPatient: { id: p.id, first_name: p.first_name, last_name: p.last_name },
-                        banner: { 
-                          found: true, 
-                          text: t("income.banner.found_basic", { name: name, total: (p.banner?.total_paid ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }) 
+                        banner: {
+                          found: true,
+                          text: t("income.banner.found_basic", { name: name, total: (p.banner?.total_paid ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) })
                         }
                       }));
+                      setNormalizedHint("");
                       setPatientSuggestions([]);
                     }}
                     style={{ 
@@ -445,7 +464,7 @@ export default function AddIncomePage() {
                 {form.banner.text}
               </div>
             )}
-            {!isPatientValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.patient_invalid")}</div>}
+            {submitted && !isPatientValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.patient_invalid")}</div>}
             <button
               type="button"
               className="btn btn-ghost"
@@ -564,7 +583,7 @@ export default function AddIncomePage() {
                           value={form.receiptNote}
                           onChange={(e) => setForm((p) => ({ ...p, receiptNote: e.target.value }))}
                         />
-                        {!isReceiptNoteValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.receipt_note_required")}</div>}
+                        {submitted && !isReceiptNoteValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.receipt_note_required")}</div>}
                       </div>
                     )}
                   </div>
@@ -588,7 +607,7 @@ export default function AddIncomePage() {
                   </option>
                 ))}
               </select>
-              {!isDoctorValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.doctor_required")}</div>}
+              {submitted && !isDoctorValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.doctor_required")}</div>}
             </div>
             <div className="form-grid">
               <div>
@@ -603,7 +622,7 @@ export default function AddIncomePage() {
                     onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))}
                   />
                 </div>
-                {!isAmountValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.amount_invalid")}</div>}
+                {submitted && !isAmountValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.amount_invalid")}</div>}
               </div>
               <div>
                 <div className="form-label">{t("income.form.payment_method")}</div>
@@ -647,7 +666,7 @@ export default function AddIncomePage() {
                       value={form.labCost}
                       onChange={(e) => setForm((p) => ({ ...p, labCost: e.target.value }))}
                     />
-                    {!isLabCostValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.lab_cost_required")}</div>}
+                    {submitted && !isLabCostValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.lab_cost_required")}</div>}
                   </div>
                   <div>
                     <div className="form-label">{t("income.form.lab_note")}</div>
@@ -657,7 +676,7 @@ export default function AddIncomePage() {
                       value={form.labNote}
                       onChange={(e) => setForm((p) => ({ ...p, labNote: e.target.value }))}
                     />
-                    {!isLabNoteValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.lab_note_required")}</div>}
+                    {submitted && !isLabNoteValid && <div className="form-error" style={{ marginTop: '6px' }}>{t("income.validation.lab_note_required")}</div>}
                   </div>
                 </div>
               </div>

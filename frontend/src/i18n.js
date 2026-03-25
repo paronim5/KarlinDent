@@ -15,6 +15,7 @@ const resources = {
         "staff": "Staff",
         "my_income": "My Income",
         "schedule": "Schedule",
+        "patients": "Patients",
         "export": "Export",
         "add_income": "Add Income",
         "add_outcome": "Add Outcome"
@@ -408,6 +409,34 @@ const resources = {
         "sign_out": "Sign out",
         "connection_error": "Connection error. Please try again."
       },
+      "patients": {
+        "title": "Patient Lookup",
+        "subtitle": "Search by name or ID to view patient history",
+        "search_label": "Patient",
+        "search_placeholder": "Last name, first name or ID...",
+        "no_results": "No patients found",
+        "no_records": "No records for selected period",
+        "filter": "Apply",
+        "back": "Back to search",
+        "records_title": "Income Records",
+        "chart_label": "Spending",
+        "trend_title": "Spending Trend",
+        "stats": {
+          "total_paid": "Total Paid",
+          "visits": "Visits",
+          "avg_visit": "Avg / Visit",
+          "lab_cost": "Lab Costs",
+          "last_visit": "Last Visit"
+        },
+        "table": {
+          "date": "Date",
+          "doctor": "Doctor",
+          "amount": "Amount",
+          "lab_cost": "Lab Cost",
+          "payment": "Payment",
+          "note": "Note"
+        }
+      },
       "schedule": {
         "today": "Today",
         "add_shift": "Add Shift",
@@ -473,6 +502,7 @@ const resources = {
         "staff": "Сотрудники",
         "my_income": "Мой доход",
         "schedule": "График",
+        "patients": "Пациенты",
         "export": "Экспорт",
         "add_income": "Добавить доход",
         "add_outcome": "Добавить расход"
@@ -866,6 +896,34 @@ const resources = {
         "sign_out": "Выйти",
         "connection_error": "Ошибка соединения. Попробуйте ещё раз."
       },
+      "patients": {
+        "title": "Поиск пациента",
+        "subtitle": "Поиск по имени или ID для просмотра истории",
+        "search_label": "Пациент",
+        "search_placeholder": "Фамилия, имя или ID...",
+        "no_results": "Пациенты не найдены",
+        "no_records": "Нет записей за выбранный период",
+        "filter": "Применить",
+        "back": "Назад к поиску",
+        "records_title": "Записи о доходах",
+        "chart_label": "Расходы",
+        "trend_title": "Динамика расходов",
+        "stats": {
+          "total_paid": "Всего оплачено",
+          "visits": "Визиты",
+          "avg_visit": "Среднее / визит",
+          "lab_cost": "Лаб. расходы",
+          "last_visit": "Последний визит"
+        },
+        "table": {
+          "date": "Дата",
+          "doctor": "Врач",
+          "amount": "Сумма",
+          "lab_cost": "Лаб. расходы",
+          "payment": "Оплата",
+          "note": "Примечание"
+        }
+      },
       "schedule": {
         "today": "Сегодня",
         "add_shift": "Добавить смену",
@@ -927,13 +985,14 @@ const resources = {
         "payroll": "Mzdy",
         "dashboard": "Nástěnka",
         "income": "Příjmy",
-        "expenses": "Výdaje",
+        "expenses": "Výdeje",
         "staff": "Personál",
         "my_income": "Můj příjem",
         "schedule": "Rozvrh",
+        "patients": "Pacienti",
         "export": "Exportovat",
         "add_income": "Přidat příjem",
-        "add_outcome": "Přidat výdaj"
+        "add_outcome": "Přidat výdej"
       },
       "common": {
         "period_active": "AKTIVNÍ OBDOBÍ",
@@ -953,26 +1012,26 @@ const resources = {
       },
       "clinic": {
         "total_income": "Celkový příjem",
-        "total_outcome": "Celkové výdaje",
+        "total_outcome": "Celkové výdeje",
         "payroll_due": "K výplatě",
         "net_profit": "Čistý zisk",
         "active_staff": "Aktivní personál",
         "unique_patients": "Unikátní pacienti",
         "daily_pnl": "Denní P&L",
-        "daily_income_outcome": "Denní příjmy vs výdaje",
+        "daily_income_outcome": "Denní příjmy vs výdeje",
         "last_30_days": "Posledních 30 dní",
         "period_meta": "Statistiky za {{period}}",
         "sections": {
           "financial": "Finanční přehled",
           "patients": "Informace o pacientech",
           "doctors": "Výkon lékařů",
-          "expenses": "Analýza výdajů",
+          "expenses": "Analýza výdejů",
           "operations": "Provozní zdraví"
         },
         "financial": {
           "net_profit": "Čistý zisk",
           "income_trend": "Trend příjmů",
-          "expense_trend": "Trend výdajů",
+          "expense_trend": "Trend výdejů",
           "payment_ratio": "Poměr hotovost vs karta",
           "lab_ratio": "Náklady na lab. % z příjmů"
         },
@@ -994,10 +1053,10 @@ const resources = {
         },
         "expenses": {
           "salary_ratio": "Mzdové náklady % z příjmů",
-          "by_category": "Výdaje podle kategorií",
+          "by_category": "Výdeje podle kategorií",
           "category": "Kategorie",
           "total": "Celkem",
-          "trend": "Meziměsíční výdaje",
+          "trend": "Meziměsíční výdeje",
           "month": "Měsíc"
         },
         "operations": {
@@ -1020,7 +1079,7 @@ const resources = {
         },
         "chart": {
           "income": "PŘÍJEM",
-          "outcome": "VÝDAJ",
+          "outcome": "VÝDEJ",
           "profit": "ZISK"
         },
         "day_details": {
@@ -1132,9 +1191,9 @@ const resources = {
         }
       },
       "outcome": {
-        "title": "Správa výdajů",
-        "history_title": "Historie výdajů",
-        "expenses": "Výdaje",
+        "title": "Správa výdejů",
+        "history_title": "Historie výdejů",
+        "expenses": "Výdeje",
         "salaries": "Mzdy",
         "salary_panel": {
           "breakdown": "Rozpis mzdy",
@@ -1176,7 +1235,7 @@ const resources = {
           "reset_counter": "Varování: Zpracování této platby vynuluje počítadlo tržeb zaměstnance."
         },
         "form": {
-          "add_expense": "Přidat výdaj",
+          "add_expense": "Přidat výdej",
           "add_salary": "Přidat mzdu",
           "category": "Kategorie",
           "amount": "Částka",
@@ -1185,7 +1244,7 @@ const resources = {
           "description": "Popis",
           "staff": "Zaměstnanec",
           "note": "Poznámka",
-          "submit_expense": "Zaznamenat výdaj",
+          "submit_expense": "Zaznamenat výdej",
           "submit_salary": "Zaznamenat mzdu"
         },
         "table": {
@@ -1196,7 +1255,7 @@ const resources = {
           "staff": "Zaměstnanec"
         },
         "errors": {
-          "load_data": "Nepodařilo se načíst údaje o výdajích",
+          "load_data": "Nepodařilo se načíst údaje o výdejích",
           "load_reference": "Nepodařilo se načíst referenční údaje"
         }
       },
@@ -1323,6 +1382,34 @@ const resources = {
         "signing_in": "Přihlašování…",
         "sign_out": "Odhlásit se",
         "connection_error": "Chyba připojení. Zkuste to prosím znovu."
+      },
+      "patients": {
+        "title": "Vyhledávání pacientů",
+        "subtitle": "Vyhledejte podle jména nebo ID pro zobrazení historie",
+        "search_label": "Pacient",
+        "search_placeholder": "Příjmení, jméno nebo ID...",
+        "no_results": "Žádní pacienti nenalezeni",
+        "no_records": "Žádné záznamy pro vybrané období",
+        "filter": "Použít",
+        "back": "Zpět na vyhledávání",
+        "records_title": "Záznamy příjmů",
+        "chart_label": "Výdeje",
+        "trend_title": "Trend výdejů",
+        "stats": {
+          "total_paid": "Celkem zaplaceno",
+          "visits": "Návštěvy",
+          "avg_visit": "Průměr / návštěva",
+          "lab_cost": "Lab. náklady",
+          "last_visit": "Poslední návštěva"
+        },
+        "table": {
+          "date": "Datum",
+          "doctor": "Lékař",
+          "amount": "Částka",
+          "lab_cost": "Lab. náklady",
+          "payment": "Platba",
+          "note": "Poznámka"
+        }
       },
       "schedule": {
         "today": "Dnes",

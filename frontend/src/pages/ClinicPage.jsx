@@ -28,7 +28,7 @@ function getChartColors() {
 }
 
 export default function ClinicPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -106,7 +106,18 @@ export default function ClinicPage() {
   const chartData =
     dashboard &&
     (() => {
-      const labels = dashboard.graph.map((item) => item.label);
+      const labels = dashboard.graph.map((item) => {
+        if (item.type === 'hour') return item.label; // HH:00 — no locale needed
+        if (item.type === 'month') {
+          const d = new Date(item.key);
+          return isNaN(d) ? item.label : d.toLocaleString(i18n.language, { month: 'long' }).replace(/^./, c => c.toUpperCase());
+        }
+        // day type
+        const d = new Date(item.key);
+        if (isNaN(d)) return item.label;
+        if (period === 'week') return d.toLocaleDateString(i18n.language, { weekday: 'long' }).replace(/^./, c => c.toUpperCase());
+        return d.getDate();
+      });
       const datasets = [];
 
       if (showIncome) {

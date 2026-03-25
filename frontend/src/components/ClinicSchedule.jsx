@@ -34,7 +34,7 @@ const DOCTOR_PALETTE = ["#3b82f6", "#6366f1", "#8b5cf6", "#0ea5e9", "#06b6d4", "
 const STAFF_PALETTE = ["#0a84ff", "#30d158", "#5856d6", "#ff375f", "#ff9f0a", "#14b8a6", "#bf5af2", "#64d2ff", "#ac8e68"];
 
 /* ── Mini calendar ── */
-function MiniCal({ selected, onSelect, t }) {
+function MiniCal({ selected, onSelect, t, lang }) {
   const [view, setView] = useState(new Date(selected));
   const year = view.getFullYear();
   const month = view.getMonth();
@@ -53,7 +53,7 @@ function MiniCal({ selected, onSelect, t }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <button onClick={() => nav(-1)} className="btn btn-ghost" style={{ padding: "4px 10px", minHeight: 28, fontSize: 14 }}>&#8249;</button>
         <span style={{ fontSize: 13, fontWeight: 700 }}>
-          {view.toLocaleString("default", { month: "long", year: "numeric" })}
+          {view.toLocaleString(lang, { month: "long", year: "numeric" })}
         </span>
         <button onClick={() => nav(1)} className="btn btn-ghost" style={{ padding: "4px 10px", minHeight: 28, fontSize: 14 }}>&#8250;</button>
       </div>
@@ -103,30 +103,18 @@ function ShiftModal({ open, editingShift, form, setForm, staffList, onClose, onS
               {staffList.map((s) => <option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>)}
             </select>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6, display: "block" }}>{t("schedule.modal.start_time")}</label>
-              <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5}
-                value={form.start_time}
-                onChange={(e) => {
-                  let v = e.target.value.replace(/[^0-9:]/g, "");
-                  if (v.length === 2 && !v.includes(":") && form.start_time.length < 3) v += ":";
-                  setForm((p) => ({ ...p, start_time: v }));
-                }}
-                className="form-input" style={{ fontFamily: "var(--font-mono)", letterSpacing: 1 }} />
+          {editingShift && (
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ flex: 1, background: "var(--surface)", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>{t("schedule.modal.start_time")}</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 700, color: "var(--accent)" }}>{form.start_time}</div>
+              </div>
+              <div style={{ flex: 1, background: "var(--surface)", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>{t("schedule.modal.end_time")}</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 700, color: "var(--accent)" }}>{form.end_time}</div>
+              </div>
             </div>
-            <div>
-              <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6, display: "block" }}>{t("schedule.modal.end_time")}</label>
-              <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5}
-                value={form.end_time}
-                onChange={(e) => {
-                  let v = e.target.value.replace(/[^0-9:]/g, "");
-                  if (v.length === 2 && !v.includes(":") && form.end_time.length < 3) v += ":";
-                  setForm((p) => ({ ...p, end_time: v }));
-                }}
-                className="form-input" style={{ fontFamily: "var(--font-mono)", letterSpacing: 1 }} />
-            </div>
-          </div>
+          )}
           <div>
             <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6, display: "block" }}>{t("schedule.modal.notes")}</label>
             <input value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} placeholder={t("schedule.modal.note_placeholder")} className="form-input" />
@@ -146,7 +134,7 @@ function ShiftModal({ open, editingShift, form, setForm, staffList, onClose, onS
 
 /* ── Main component ── */
 export default function ClinicSchedule({ api: injectedApi }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const defaultApi = useApi();
   const api = useMemo(() => injectedApi || defaultApi, [injectedApi]);
 
@@ -226,7 +214,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
   useEffect(() => { const t = setInterval(fetchShifts, 30000); return () => clearInterval(t); }, [fetchShifts]);
 
   const dateLabel = useMemo(() =>
-    date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }).toUpperCase()
+    date.toLocaleDateString(i18n.language, { weekday: "short", month: "short", day: "numeric", year: "numeric" }).toUpperCase()
   , [date]);
 
   /* ── Shift drag handlers (move & resize) ── */
@@ -309,11 +297,16 @@ export default function ClinicSchedule({ api: injectedApi }) {
       const pd = pendingDragRef.current;
       pendingDragRef.current = null;
       if (!pd) return;
-      // Click without movement — do nothing (modal only opened via sidebar + button)
+      // Click without movement
       if (!pd.activated) {
         dragRef.current = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        // If pressed on a resize handle (even without moving), block the modal
+        if (pd.type === "resize-l" || pd.type === "resize-r") {
+          justDraggedRef.current = true;
+          setTimeout(() => { justDraggedRef.current = false; }, 200);
+        }
         return;
       }
       // Drag was active → commit the time change
@@ -513,9 +506,8 @@ export default function ClinicSchedule({ api: injectedApi }) {
                   onDrop={onTimelineDrop}
                   onDragEnter={() => sidebarDrag && setDropTarget(member.id)}
                   onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropTarget(null); }}
-                  onClick={(e) => {
+                  onDoubleClick={(e) => {
                     if (dragRef.current) return;
-                    // One shift per day: if person already has a shift, edit it instead of creating new
                     if (memberShifts.length > 0) {
                       openModal(memberShifts[0]);
                       return;
@@ -544,7 +536,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
                     const borderColor = sh.status === "accepted" ? "var(--green)" : sh.status === "pending" ? "#eab308" : member.color;
                     const timeLabel = `${f2(Math.floor(leftMin / 60))}:${f2(leftMin % 60)} – ${f2(Math.floor(rightMin / 60))}:${f2(rightMin % 60)}`;
                     return (
-                      <div key={sh.id} onClick={(ev) => { ev.stopPropagation(); if (!dragRef.current && !justDraggedRef.current) openModal(sh); }}
+                      <div key={sh.id} onDoubleClick={(ev) => { ev.stopPropagation(); openModal(sh); }}
                         style={{
                           position: "absolute", top: 4, left: left + 1, width: Math.max(width - 2, 30), height: ROW_H - 8,
                           borderLeft: `3px solid ${borderColor}`, borderRadius: "0 8px 8px 0",
@@ -560,10 +552,14 @@ export default function ClinicSchedule({ api: injectedApi }) {
                       >
                         {/* Left resize handle */}
                         <div onPointerDown={(ev) => onShiftPointerDown(ev, sh, "resize-l")}
-                          style={{ position: "absolute", left: -3, top: 0, width: 10, height: "100%", cursor: "col-resize", zIndex: 10 }} />
+                          style={{ position: "absolute", left: 0, top: 0, width: 10, height: "100%", cursor: "col-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <div style={{ width: 3, height: "60%", borderRadius: 2, background: `${borderColor}cc`, pointerEvents: "none" }} />
+                        </div>
                         {/* Right resize handle */}
                         <div onPointerDown={(ev) => onShiftPointerDown(ev, sh, "resize-r")}
-                          style={{ position: "absolute", right: -3, top: 0, width: 10, height: "100%", cursor: "col-resize", zIndex: 10 }} />
+                          style={{ position: "absolute", right: 0, top: 0, width: 10, height: "100%", cursor: "col-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <div style={{ width: 3, height: "60%", borderRadius: 2, background: `${borderColor}cc`, pointerEvents: "none" }} />
+                        </div>
                         <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, opacity: 0.7, lineHeight: 1.3 }}>{timeLabel}</div>
                         <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3 }}>{sh.note || (() => { const dm = rightMin - leftMin; const dh = Math.floor(dm / 60); const dmm = dm % 60; return dmm ? `${dh}h ${dmm}m` : `${dh}h`; })()}</div>
                         {sh.status === "pending" && width > 55 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "#eab308", fontWeight: 600, letterSpacing: 0.5 }}>{t("schedule.status.pending", { defaultValue: "PENDING" })}</div>}
@@ -610,7 +606,7 @@ export default function ClinicSchedule({ api: injectedApi }) {
         {/* Calendar panel */}
         <div className="panel" style={{ padding: 16, flexShrink: 0 }}>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>{t("schedule.calendar")}</div>
-          <MiniCal selected={date} onSelect={(d) => setDate(d)} t={t} />
+          <MiniCal selected={date} onSelect={(d) => setDate(d)} t={t} lang={i18n.language} />
         </div>
 
         {/* Available staff panel */}

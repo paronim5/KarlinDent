@@ -196,6 +196,17 @@ export default function Layout({ children }) {
         </nav>
 
         <nav className="nav-section" style={{ marginTop: "20px" }}>
+          <div className="nav-label">{t("nav.patients")}</div>
+          <Link
+            to="/patients"
+            className={location.pathname === "/patients" ? "nav-item active" : "nav-item"}
+            onClick={() => setSidebarOpen(false)}
+          >
+            <span className="nav-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span> {t("nav.patients")}
+          </Link>
+        </nav>
+
+        <nav className="nav-section" style={{ marginTop: "20px" }}>
           <div className="nav-label">{t("nav.staff")}</div>
           <Link
             to="/staff"

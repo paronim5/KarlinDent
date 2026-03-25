@@ -183,6 +183,75 @@ def search_patients():
     return jsonify(results)
 
 
+@patients_bp.route("/<int:patient_id>", methods=["GET"])
+def get_patient(patient_id):
+    from_date = request.args.get("from")
+    to_date = request.args.get("to")
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+
+        cur.execute("SELECT id, first_name, last_name FROM patients WHERE id = %s", (patient_id,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        patient = {"id": row[0], "first_name": row[1], "last_name": row[2]}
+
+        # Overall stats (always full history)
+        cur.execute("""
+            SELECT COALESCE(SUM(amount), 0), COUNT(*), COALESCE(AVG(amount), 0),
+                   MAX(service_date), COALESCE(SUM(lab_cost), 0)
+            FROM income_records WHERE patient_id = %s
+        """, (patient_id,))
+        s = cur.fetchone()
+        stats = {
+            "total_paid": float(s[0]),
+            "visit_count": int(s[1]),
+            "avg_per_visit": round(float(s[2]), 2),
+            "last_visit": s[3].isoformat() if s[3] and hasattr(s[3], "isoformat") else None,
+            "total_lab_cost": float(s[4]),
+        }
+
+        # Records (with optional date filter)
+        r_params = [patient_id]
+        r_filter = ""
+        if from_date and to_date:
+            r_filter = "AND ir.service_date BETWEEN %s AND %s"
+            r_params += [from_date, to_date]
+        cur.execute(f"""
+            SELECT ir.id, ir.service_date, ir.amount, ir.lab_cost, ir.payment_method, ir.note,
+                   s.first_name || ' ' || s.last_name
+            FROM income_records ir
+            JOIN staff s ON s.id = ir.doctor_id
+            WHERE ir.patient_id = %s {r_filter}
+            ORDER BY ir.service_date DESC, ir.id DESC
+        """, r_params)
+        records = []
+        for r in cur.fetchall():
+            records.append({
+                "id": r[0],
+                "service_date": r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1]),
+                "amount": float(r[2]),
+                "lab_cost": float(r[3] or 0),
+                "payment_method": r[4],
+                "note": r[5] or "",
+                "doctor_name": r[6],
+            })
+
+        # Monthly spending trend (full history)
+        cur.execute("""
+            SELECT TO_CHAR(service_date, 'YYYY-MM'), COALESCE(SUM(amount), 0)
+            FROM income_records WHERE patient_id = %s
+            GROUP BY 1 ORDER BY 1
+        """, (patient_id,))
+        trend = [{"month": r[0], "amount": float(r[1])} for r in cur.fetchall()]
+
+        return jsonify({"patient": patient, "stats": stats, "records": records, "trend": trend})
+    finally:
+        release_connection(conn)
+
+
 @patients_bp.route("/receipt-reasons", methods=["GET"])
 def receipt_reasons():
     items = [

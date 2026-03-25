@@ -12,6 +12,8 @@ import StaffIncomeDashboard from "./pages/StaffIncomeDashboard.jsx";
 import DayDashboardPage from "./pages/DayDashboardPage.jsx";
 import SchedulePage from "./pages/SchedulePage.jsx";
 import SalaryReportPage from "./pages/SalaryReportPage.jsx";
+import PatientsPage from "./pages/PatientsPage.jsx";
+import PatientDetailPage from "./pages/PatientDetailPage.jsx";
 import Layout from "./components/Layout.jsx";
 
 const AuthContext = createContext(null);
@@ -63,6 +65,8 @@ function AppRoutes() {
         <Route path="/schedule" element={<SchedulePage />} />
         <Route path="/my-income" element={<StaffIncomeDashboard />} />
         <Route path="/clinic/day/:date" element={<DayDashboardPage />} />
+        <Route path="/patients" element={<PatientsPage />} />
+        <Route path="/patients/:id" element={<PatientDetailPage />} />
         <Route path="*" element={<Navigate to="/clinic" replace />} />
       </Routes>
     </Layout>

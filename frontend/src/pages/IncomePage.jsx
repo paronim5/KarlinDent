@@ -27,7 +27,7 @@ function getChartColors() {
 }
 
 export default function IncomePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
   const storedPeriod = typeof window !== "undefined" ? window.localStorage.getItem("globalPeriod") : null;
@@ -241,13 +241,13 @@ export default function IncomePage() {
             // k is YYYY-MM
             const date = new Date(`${k}-01`);
             if (isNaN(date.getTime())) return k;
-            return date.toLocaleString('default', { month: 'long' });
+            return date.toLocaleString(i18n.language, { month: 'long' }).replace(/^./, c => c.toUpperCase());
         }
         // Daily
         const date = new Date(k);
         if (isNaN(date.getTime())) return k;
-        return period === 'week' 
-            ? date.toLocaleDateString('default', { weekday: 'long' }) 
+        return period === 'week'
+            ? date.toLocaleDateString(i18n.language, { weekday: 'long' }).replace(/^./, c => c.toUpperCase())
             : date.getDate(); // 1, 2, 3...
     });
 

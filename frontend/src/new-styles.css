@@ -1009,6 +1009,9 @@ select.form-input { cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: 16px;
   width: 90%; max-width: 500px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 20px 50px rgba(0,0,0,0.5);
   animation: fadeUp 0.3s ease-out;
   overflow: hidden;
@@ -1019,18 +1022,22 @@ select.form-input { cursor: pointer; }
   font-weight: 700;
   border-bottom: 1px solid var(--border);
   background: rgba(255,255,255,0.02);
+  flex-shrink: 0;
 }
 .modal-body {
   padding: 24px;
   font-size: 15px;
   line-height: 1.5;
   color: var(--subtext);
+  overflow-y: auto;
+  flex: 1;
 }
 .modal-actions {
   padding: 20px 24px;
   display: flex; justify-content: flex-end; gap: 12px;
   background: rgba(0,0,0,0.2);
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .btn-danger {
   background: rgba(239,68,68,0.15);

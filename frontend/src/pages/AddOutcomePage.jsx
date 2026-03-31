@@ -887,7 +887,7 @@ export default function AddOutcomePage() {
                 <div style={{ color: 'var(--text-secondary)' }}>{t("outcome.salary_notes.empty")}</div>
               )}
               {!salaryNotesLoading && !salaryNotesError && salaryNotes.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto' }}>
                   {salaryNotes.map((note) => (
                     <div key={note.id} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>

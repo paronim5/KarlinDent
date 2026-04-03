@@ -247,6 +247,10 @@ export default function AddOutcomePage() {
           if (totalHours > 0) {
             setSalaryForm((p) => ({ ...p, amount: amount.toFixed(2) }));
             setError("");
+          } else if (prefillAmount !== null) {
+            // Keep the prefill amount — unpaid total may include adjustments with no shift hours
+            setSalaryForm((p) => ({ ...p, amount: prefillAmount.toFixed(2) }));
+            setError("");
           } else {
             setSalaryForm((p) => ({ ...p, amount: "" }));
             setError("No accepted shifts for selected period.");

@@ -210,7 +210,7 @@ export default function StaffPage() {
     }
   };
 
-  const openPayModal = async (member) => {
+  const openPayModal = (member) => {
       if (member.role === 'doctor') {
           const params = new URLSearchParams();
           params.set("tab", "salary");
@@ -218,20 +218,27 @@ export default function StaffPage() {
           navigate(`/outcome/add?${params.toString()}`);
           return;
       }
-      try {
-          const estimate = await api.get(`/staff/${member.id}/salary-estimate`);
-          // Instead of opening a local modal that bypasses signing, 
-          // we redirect to the specialized AddOutcomePage which has the signature workflow.
-          const params = new URLSearchParams();
-          params.set("tab", "salary");
-          params.set("staff_id", String(member.id));
-          if (estimate && estimate.estimated_total) {
-              params.set("amount", estimate.estimated_total.toFixed(2));
-          }
-          navigate(`/outcome/add?${params.toString()}`);
-      } catch (err) {
-          setError("Failed to load salary estimate");
+      const params = new URLSearchParams();
+      params.set("tab", "salary");
+      params.set("staff_id", String(member.id));
+      if (member.unpaid_amount > 0) {
+          params.set("amount", member.unpaid_amount.toFixed(2));
       }
+      const today = new Date();
+      const to = today.toISOString().slice(0, 10);
+      let from;
+      if (member.last_paid_at) {
+          const d = new Date(member.last_paid_at);
+          d.setDate(d.getDate() + 1);
+          from = d.toISOString().slice(0, 10);
+      } else {
+          const d = new Date(today);
+          d.setFullYear(d.getFullYear() - 2);
+          from = d.toISOString().slice(0, 10);
+      }
+      params.set("from", from);
+      params.set("to", to);
+      navigate(`/outcome/add?${params.toString()}`);
   };
 
   const handlePaySalary = () => {

@@ -1257,8 +1257,6 @@ def get_salary_estimate(staff_id: int):
             commission_part = 0.0
             unpaid_patients = []
             commission_metrics = compute_doctor_commission_metrics(0.0, 0.0, commission_rate)
-            period_start = datetime.combine(start_date, time.min)
-            period_end = datetime.combine(end_date + timedelta(days=1), time.min)
             weekday_hours = 0.0
             weekend_hours = 0.0
             try:
@@ -1279,12 +1277,10 @@ def get_salary_estimate(staff_id: int):
                         ), 0)
                     FROM shifts
                     WHERE staff_id = %s
-                      AND start_time >= %s
-                      AND end_time < %s
                       AND status IN ('accepted', 'approved')
                       AND salary_payment_id IS NULL
                     """,
-                    (staff_id, period_start, period_end),
+                    (staff_id,),
                 )
             except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 conn.rollback()
@@ -1348,7 +1344,10 @@ def pay_salary():
         }), 400
 
     requested_amount = data.get("amount", None)
-    
+    reset_counter = data.get("reset_counter", True)
+    if not isinstance(reset_counter, bool):
+        reset_counter = str(reset_counter).lower() not in ("false", "0", "no")
+
     payment_date_raw = data.get("payment_date") or date.today().isoformat()
     try:
         payment_date = parse_payment_date(payment_date_raw)
@@ -1440,8 +1439,6 @@ def pay_salary():
             weekend_hours = 0.0
             try:
                 ensure_shifts_salary_payment_column(conn)
-                period_start = datetime.combine(start_date, time.min)
-                period_end = datetime.combine(end_date + timedelta(days=1), time.min)
                 cur.execute(
                     """
                     SELECT
@@ -1459,12 +1456,10 @@ def pay_salary():
                         ), 0)
                     FROM shifts
                     WHERE staff_id = %s
-                      AND start_time >= %s
-                      AND end_time < %s
                       AND status IN ('accepted', 'approved')
                       AND salary_payment_id IS NULL
                     """,
-                    (staff_id, period_start, period_end),
+                    (staff_id,),
                 )
             except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 conn.rollback()
@@ -1574,6 +1569,7 @@ def pay_salary():
                 changed_by_staff_id,
             )
 
+        # Always reset the counter (mark shifts/income as paid and link adjustments)
         if role_name == "doctor":
             cur.execute(
                 """
@@ -1589,27 +1585,23 @@ def pay_salary():
             cur.execute("SAVEPOINT shift_link_sp")
             try:
                 ensure_shifts_salary_payment_column(conn)
-                period_start = datetime.combine(start_date, time.min)
-                period_end = datetime.combine(end_date + timedelta(days=1), time.min)
                 cur.execute(
                     """
                     UPDATE shifts
                     SET salary_payment_id = %s,
                         status = 'paid'
-                    WHERE staff_id = %s 
-                      AND start_time >= %s
-                      AND end_time < %s
+                    WHERE staff_id = %s
                       AND status = 'accepted'
                       AND salary_payment_id IS NULL
                     """,
-                    (payment_id, staff_id, period_start, period_end)
+                    (payment_id, staff_id)
                 )
             except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 cur.execute("ROLLBACK TO SAVEPOINT shift_link_sp")
             finally:
                 cur.execute("RELEASE SAVEPOINT shift_link_sp")
-        
-        # Link adjustments
+
+        # Link pending adjustments
         cur.execute(
             """
             UPDATE salary_adjustments
@@ -1619,7 +1611,20 @@ def pay_salary():
             (payment_id, staff_id)
         )
 
-        # Reset total_revenue to 0 for the staff member
+        # When not resetting counter: record the difference as a debt adjustment
+        # so future unpaid_amount reflects under/overpayment.
+        if not reset_counter:
+            debt = round(calculated_amount - total_amount, 2)
+            if debt != 0:
+                cur.execute(
+                    """
+                    INSERT INTO salary_adjustments (staff_id, amount, reason)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (staff_id, debt, "salary_debt")
+                )
+
+        # Reset total_revenue to 0 for doctor (counter is always reset)
         if role_name == "doctor":
             cur.execute(
                 """
@@ -1751,6 +1756,8 @@ def list_staff():
     role = request.args.get("role")
     q = request.args.get("q", "").strip()
     working_on = request.args.get("working_on")
+    with_debt_raw = request.args.get("with_debt", "true")
+    with_debt = with_debt_raw.lower() not in ("false", "0", "no")
 
     conn = get_connection()
     try:
@@ -1791,6 +1798,11 @@ def list_staff():
             params.extend([day_end, day_start])
 
         condition_sql = " AND ".join(conditions)
+        pending_adj_sql = (
+            "(SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL)"
+            if with_debt else
+            "0::numeric"
+        )
 
         try:
             cur.execute(
@@ -1809,7 +1821,7 @@ def list_staff():
                        r.name,
                        COALESCE(SUM(sp.amount), 0) AS commission_income,
                        (SELECT COALESCE(SUM(amount - COALESCE(lab_cost, 0)), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
-                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments,
+                       {pending_adj_sql} AS pending_adjustments,
                        (
                            SELECT COALESCE(
                                SUM(
@@ -1865,7 +1877,7 @@ def list_staff():
                        r.name,
                        COALESCE(SUM(sp.amount), 0) AS commission_income,
                        (SELECT COALESCE(SUM(amount - COALESCE(lab_cost, 0)), 0) FROM income_records WHERE doctor_id = s.id AND salary_payment_id IS NULL) AS unpaid_revenue,
-                       (SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE staff_id = s.id AND applied_to_salary_payment_id IS NULL) AS pending_adjustments,
+                       {pending_adj_sql} AS pending_adjustments,
                        0::numeric AS pending_shift_salary
                 FROM staff s
                 JOIN staff_roles r ON r.id = s.role_id

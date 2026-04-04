@@ -63,6 +63,7 @@ export default function StaffPage() {
   const initialPeriod = localStorage.getItem("globalPeriod") || "month";
   const [period, setPeriod] = useState(initialPeriod);
   const [stats, setStats] = useState(null);
+  const [showDebt, setShowDebt] = useState(true);
 
   const loadStats = useCallback(async (p) => {
     const { from, to } = computeRange(p);
@@ -97,13 +98,14 @@ export default function StaffPage() {
     }
   };
 
-  const loadStaff = async (role = roleFilter, query = search) => {
+  const loadStaff = async (role = roleFilter, query = search, withDebt = showDebt) => {
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
       if (role) params.append("role", role);
       if (query) params.append("q", query);
+      params.append("with_debt", withDebt ? "true" : "false");
       const items = await api.get(`/staff?${params.toString()}`);
       setStaff(items);
     } catch (err) {
@@ -236,6 +238,8 @@ export default function StaffPage() {
           d.setFullYear(d.getFullYear() - 2);
           from = d.toISOString().slice(0, 10);
       }
+      // Ensure from never exceeds to (can happen when last_paid_at == today)
+      if (from > to) from = to;
       params.set("from", from);
       params.set("to", to);
       navigate(`/outcome/add?${params.toString()}`);
@@ -369,6 +373,18 @@ export default function StaffPage() {
           </div>
           <div className="topbar-actions">
             <input className="form-input" placeholder={t("common.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={showDebt}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setShowDebt(val);
+                  loadStaff(roleFilter, search, val);
+                }}
+              />
+              <span>{t("staff.show_debt", "Include debt")}</span>
+            </label>
             <button className="btn btn-primary" onClick={openAddForm}>+ {t("staff.add_staff")}</button>
           </div>
         </div>
@@ -410,7 +426,7 @@ export default function StaffPage() {
                   <td className="mono" data-label={t("staff.table_meta.base_commission")}>
                     {member.role === 'doctor' ? `${((member.commission_rate || 0) * 100).toFixed(1)}%` : (member.base_salary || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                   </td>
-                  <td className="mono" style={{ color: "var(--green)" }} data-label={t("staff.table_meta.total_earned")}>
+                  <td className="mono" style={{ color: (member.unpaid_amount || 0) < 0 ? "var(--red)" : "var(--green)" }} data-label={t("staff.table_meta.total_earned")}>
                     {(member.unpaid_amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
                   </td>
                   <td data-label={t("staff.table_meta.actions")}>

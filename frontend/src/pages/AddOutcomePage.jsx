@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "../api/client.js";
 import { useAuth } from "../App.jsx";
 
@@ -8,6 +8,7 @@ export default function AddOutcomePage() {
   const { t } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
 
   // Tabs: "general" or "salary"
@@ -33,6 +34,7 @@ export default function AddOutcomePage() {
     note: "",
   });
   const [prefillAmount, setPrefillAmount] = useState(null);
+  const prefillAmountRef = useRef(null);
   const [prefillStaffId, setPrefillStaffId] = useState("");
   const [salaryRange, setSalaryRange] = useState({ from: "", to: "" });
   const [timesheetSummary, setTimesheetSummary] = useState(null);
@@ -43,6 +45,7 @@ export default function AddOutcomePage() {
   const [salaryNotesLoading, setSalaryNotesLoading] = useState(false);
   const [salaryNotesError, setSalaryNotesError] = useState("");
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
+  const [signatureSuccess, setSignatureSuccess] = useState(null); // { documentId, staffId }
   const [amountDiscrepancyModal, setAmountDiscrepancyModal] = useState(null);
   const [signatureSubmitting, setSignatureSubmitting] = useState(false);
   const [signatureError, setSignatureError] = useState("");
@@ -50,6 +53,8 @@ export default function AddOutcomePage() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
   const signatureCanvasRef = useRef(null);
+
+  const [resetCounter, setResetCounter] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -64,6 +69,20 @@ export default function AddOutcomePage() {
     return Number.isFinite(num) ? num.toLocaleString(undefined, options) : "—";
   };
 
+  // Sync period buttons (Layout top bar) → salaryRange for non-doctor staff
+  useEffect(() => {
+    const handler = (event) => {
+      if (event?.detail?.from && event?.detail?.to) {
+        prefillAmountRef.current = null;
+        setPrefillAmount(null);
+        setHasManualSalaryAmount(false);
+        setSalaryRange({ from: event.detail.from, to: event.detail.to });
+      }
+    };
+    window.addEventListener("periodChanged", handler);
+    return () => window.removeEventListener("periodChanged", handler);
+  }, []);
+
   // Load initial data
   useEffect(() => {
     loadCategories();
@@ -71,12 +90,11 @@ export default function AddOutcomePage() {
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get("tab");
-    const staffIdParam = params.get("staff_id");
-    const amountParam = params.get("amount");
-    const toParam = params.get("to");
-    const fromParam = params.get("from");
+    const tab = searchParams.get("tab");
+    const staffIdParam = searchParams.get("staff_id");
+    const amountParam = searchParams.get("amount");
+    const toParam = searchParams.get("to");
+    const fromParam = searchParams.get("from");
     if (tab === "salary") {
       setActiveTab("salary");
     }
@@ -87,6 +105,7 @@ export default function AddOutcomePage() {
     if (amountParam) {
       const amountValue = toNumber(amountParam, NaN);
       if (Number.isFinite(amountValue) && amountValue > 0) {
+        prefillAmountRef.current = amountValue;
         setPrefillAmount(amountValue);
         setSalaryForm((p) => ({ ...p, amount: amountValue.toFixed(2) }));
         setHasManualSalaryAmount(false);
@@ -96,15 +115,16 @@ export default function AddOutcomePage() {
       setSalaryRange({ from: fromParam || "", to: toParam || "" });
     } else {
       const today = new Date();
-      const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const firstOfYear = new Date(today.getFullYear(), 0, 1);
       const to = today.toISOString().slice(0, 10);
-      const from = firstOfMonth.toISOString().slice(0, 10);
+      const from = firstOfYear.toISOString().slice(0, 10);
       setSalaryRange({ from, to });
     }
     {
       const todayStr = new Date().toISOString().slice(0, 10);
       setSalaryForm((p) => ({ ...p, paymentDate: todayStr }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadCategories = async () => {
@@ -142,6 +162,7 @@ export default function AddOutcomePage() {
       return;
     }
     if (prefillStaffId && String(prefillStaffId) !== String(selectedStaffId)) {
+      prefillAmountRef.current = null;
       setPrefillAmount(null);
       setPrefillStaffId("");
       setHasManualSalaryAmount(false);
@@ -247,9 +268,9 @@ export default function AddOutcomePage() {
           if (totalHours > 0) {
             setSalaryForm((p) => ({ ...p, amount: amount.toFixed(2) }));
             setError("");
-          } else if (prefillAmount !== null) {
+          } else if (prefillAmountRef.current !== null) {
             // Keep the prefill amount — unpaid total may include adjustments with no shift hours
-            setSalaryForm((p) => ({ ...p, amount: prefillAmount.toFixed(2) }));
+            setSalaryForm((p) => ({ ...p, amount: prefillAmountRef.current.toFixed(2) }));
             setError("");
           } else {
             setSalaryForm((p) => ({ ...p, amount: "" }));
@@ -357,6 +378,7 @@ export default function AddOutcomePage() {
         payment_date: salaryForm.paymentDate,
         note: salaryForm.note,
         amount_change_reason: amountChangeReason,
+        reset_counter: resetCounter,
         signature: {
           signer_name: signerName.trim(),
           signed_at: signedAt,
@@ -370,11 +392,13 @@ export default function AddOutcomePage() {
 
       window.dispatchEvent(new CustomEvent("salaryPaid"));
       window.dispatchEvent(new CustomEvent("toast", { detail: { type: "success", message: "Salary payment recorded and report signed" } }));
-      
-      // If we got a document ID, we might want to download it automatically?
-      // For now, just navigate to outcome list as requested.
-      setSignatureModalOpen(false);
-      navigate("/outcome");
+
+      if (response?.document_id) {
+        setSignatureSuccess({ documentId: response.document_id, staffId: Number(selectedStaffId) });
+      } else {
+        setSignatureModalOpen(false);
+        navigate("/outcome");
+      }
     } catch (err) {
       setSignatureError(err.message || "Failed to record salary and sign report");
     } finally {
@@ -409,6 +433,7 @@ export default function AddOutcomePage() {
   const openSignatureModal = () => {
     if (!selectedStaffId) return;
     setSignatureError("");
+    setSignatureSuccess(null);
     setSignatureModalOpen(true);
     setHasSignature(false);
   };
@@ -760,6 +785,42 @@ export default function AddOutcomePage() {
               </select>
             </div>
 
+            {/* Period range picker — always visible for non-doctor staff */}
+            {selectedStaffId && staffList.find(s => String(s.id) === String(selectedStaffId))?.role !== "doctor" && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <div className="form-label">{t("outcome.salary_panel.period")} {t("outcome.form.date_from", "From")}</div>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={salaryRange.from}
+                    max={salaryRange.to || undefined}
+                    onChange={e => {
+                      prefillAmountRef.current = null;
+                      setPrefillAmount(null);
+                      setHasManualSalaryAmount(false);
+                      setSalaryRange(p => ({ ...p, from: e.target.value }));
+                    }}
+                  />
+                </div>
+                <div>
+                  <div className="form-label">{t("outcome.salary_panel.period")} {t("outcome.form.date_to", "To")}</div>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={salaryRange.to}
+                    min={salaryRange.from || undefined}
+                    onChange={e => {
+                      prefillAmountRef.current = null;
+                      setPrefillAmount(null);
+                      setHasManualSalaryAmount(false);
+                      setSalaryRange(p => ({ ...p, to: e.target.value }));
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             {showTimesheetSummary && (
               <div className="panel" style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px' }}>
                 <div style={{ fontSize: '14px', fontWeight: '500', marginBottom: '8px' }}>{t("outcome.salary_panel.breakdown")}</div>
@@ -873,6 +934,58 @@ export default function AddOutcomePage() {
                 placeholder=""
               />
             </div>
+
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={resetCounter}
+                  onChange={(e) => setResetCounter(e.target.checked)}
+                />
+                <span>{t("outcome.form.reset_counter", "Reset counter (no debt tracking)")}</span>
+              </label>
+            </div>
+
+            {!resetCounter && (() => {
+              const calculated = toNumber(suggestedAmount, NaN);
+              const paying = toNumber(salaryForm.amount, NaN);
+              const debt = Number.isFinite(calculated) && Number.isFinite(paying) ? calculated - paying : null;
+              const isPositive = debt !== null && debt > 0;
+              const isNegative = debt !== null && debt < 0;
+              return (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div className="panel" style={{
+                    background: isPositive ? 'rgba(34,197,94,0.06)' : isNegative ? 'rgba(239,68,68,0.06)' : 'var(--bg-card)',
+                    border: `1px solid ${isPositive ? 'rgba(34,197,94,0.25)' : isNegative ? 'rgba(239,68,68,0.25)' : 'var(--border)'}`,
+                    padding: '14px 16px',
+                    borderRadius: '10px',
+                  }}>
+                    <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      {t("outcome.form.debt_preview", "Debt after payment")}
+                    </div>
+                    {debt !== null ? (
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                        <span style={{ fontSize: '22px', fontWeight: '700', fontFamily: 'var(--font-mono)', color: isPositive ? 'var(--green)' : isNegative ? 'var(--red)' : 'var(--text-secondary)' }}>
+                          {isPositive ? '+' : ''}{debt.toFixed(2)}
+                        </span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {isPositive
+                            ? t("outcome.form.debt_owed", "owed to staff — added to next salary")
+                            : isNegative
+                              ? t("outcome.form.debt_overpaid", "overpaid — deducted from next salary")
+                              : t("outcome.form.debt_zero", "exact — no debt")}
+                        </span>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Enter amount to preview debt</span>
+                    )}
+                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      {t("outcome.form.debt_calc", "Calculated")} {Number.isFinite(calculated) ? calculated.toFixed(2) : '—'} − {t("outcome.form.debt_paid", "Paid")} {Number.isFinite(paying) ? paying.toFixed(2) : '—'}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {selectedStaffId && (
@@ -949,7 +1062,7 @@ export default function AddOutcomePage() {
       {signatureModalOpen && (
         <div className="modal-overlay">
           <div className="modal" role="dialog" aria-modal="true">
-            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px' }}>
               <div>{t("outcome.signature.title")}</div>
               <button
                 type="button"
@@ -960,57 +1073,102 @@ export default function AddOutcomePage() {
                 {t("outcome.signature.close")}
               </button>
             </div>
-            <div className="modal-body" style={{ color: 'var(--text)' }}>
-              <div style={{ display: 'grid', gap: '16px' }}>
-                <div>
-                  <div className="form-label">{t("outcome.signature.signer_name")}</div>
-                  <input
-                    className="form-input"
-                    value={signerName}
-                    placeholder={t("outcome.signature.signer_placeholder")}
-                    readOnly
-                  />
-                </div>
-                <div>
-                  <div className="form-label">Report Amount (PDF)</div>
-                  <input
-                    className="form-input"
-                    value={formatNumber(toNumber(salaryForm.amount, 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    readOnly
-                  />
-                </div>
-                <div>
-                  <div className="form-label">{t("outcome.signature.digital_signature")}</div>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '8px', background: 'var(--surface)' }}>
-                    <canvas
-                      ref={signatureCanvasRef}
-                      style={{ width: '100%', height: '140px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
-                      onMouseDown={handleSignatureStart}
-                      onMouseMove={handleSignatureMove}
-                      onMouseUp={handleSignatureEnd}
-                      onMouseLeave={handleSignatureEnd}
-                      onTouchStart={handleSignatureStart}
-                      onTouchMove={handleSignatureMove}
-                      onTouchEnd={handleSignatureEnd}
-                    />
+            {signatureSuccess ? (
+              <>
+                <div className="modal-body" style={{ color: 'var(--text)', padding: '24px 20px' }}>
+                  <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                    <div style={{ fontSize: '36px', marginBottom: '8px' }}>✓</div>
+                    <div style={{ fontSize: '16px', fontWeight: '600', color: 'var(--green)', marginBottom: '4px' }}>
+                      {t("outcome.signature.success_title", "Payment recorded & report signed")}
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      {t("outcome.signature.success_sub", "The salary report PDF is ready.")}
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <a
+                      href={`/api/staff/${signatureSuccess.staffId}/documents/${signatureSuccess.documentId}/view`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-secondary"
+                      style={{ textAlign: 'center', textDecoration: 'none' }}
+                    >
+                      {t("outcome.signature.view_report", "View PDF")}
+                    </a>
+                    <a
+                      href={`/api/staff/${signatureSuccess.staffId}/documents/${signatureSuccess.documentId}/download`}
+                      className="btn btn-primary"
+                      style={{ textAlign: 'center', textDecoration: 'none' }}
+                    >
+                      {t("outcome.signature.download_report", "Download PDF")}
+                    </a>
                   </div>
                 </div>
-                {signatureError && <div className="form-error">{signatureError}</div>}
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button type="button" className="btn btn-secondary" onClick={clearSignature} disabled={signatureSubmitting}>
-                {t("outcome.signature.clear")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleRecordSalaryWithSignature}
-                disabled={signatureSubmitting || !hasSignature || !signerName.trim() || !canSign}
-              >
-                {signatureSubmitting ? t("outcome.signature.recording") : t("outcome.signature.record_and_sign")}
-              </button>
-            </div>
+                <div className="modal-actions" style={{ padding: '12px 20px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => navigate("/outcome")}>
+                    {t("outcome.signature.done", "Done")}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="modal-body" style={{ color: 'var(--text)', padding: '16px 20px', overflowY: 'hidden' }}>
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <div className="form-label" style={{ fontSize: '11px' }}>{t("outcome.signature.signer_name")}</div>
+                        <input
+                          className="form-input"
+                          style={{ padding: '7px 10px', fontSize: '13px' }}
+                          value={signerName}
+                          placeholder={t("outcome.signature.signer_placeholder")}
+                          readOnly
+                        />
+                      </div>
+                      <div>
+                        <div className="form-label" style={{ fontSize: '11px' }}>Report Amount (PDF)</div>
+                        <input
+                          className="form-input"
+                          style={{ padding: '7px 10px', fontSize: '13px' }}
+                          value={formatNumber(toNumber(salaryForm.amount, 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          readOnly
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="form-label" style={{ fontSize: '11px' }}>{t("outcome.signature.digital_signature")}</div>
+                      <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '6px', background: 'var(--surface)' }}>
+                        <canvas
+                          ref={signatureCanvasRef}
+                          style={{ width: '100%', height: '110px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
+                          onMouseDown={handleSignatureStart}
+                          onMouseMove={handleSignatureMove}
+                          onMouseUp={handleSignatureEnd}
+                          onMouseLeave={handleSignatureEnd}
+                          onTouchStart={handleSignatureStart}
+                          onTouchMove={handleSignatureMove}
+                          onTouchEnd={handleSignatureEnd}
+                        />
+                      </div>
+                    </div>
+                    {signatureError && <div className="form-error">{signatureError}</div>}
+                  </div>
+                </div>
+                <div className="modal-actions" style={{ padding: '12px 20px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={clearSignature} disabled={signatureSubmitting}>
+                    {t("outcome.signature.clear")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleRecordSalaryWithSignature}
+                    disabled={signatureSubmitting || !hasSignature || !signerName.trim() || !canSign}
+                  >
+                    {signatureSubmitting ? t("outcome.signature.recording") : t("outcome.signature.record_and_sign")}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

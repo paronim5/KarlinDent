@@ -899,8 +899,6 @@ select.form-input { cursor: pointer; }
   gap: 8px;
 }
 .btn-sm { padding: 5px 12px; font-size: 12px; }
-.btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
-.btn-danger:hover:not([disabled]) { opacity: 0.85; }
 
 /* ── SHIFT SELECTION ───────────────────────────────── */
 .shift-select-actions {

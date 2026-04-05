@@ -23,6 +23,8 @@
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 20px;
+  --text-secondary: var(--subtext);
+  --bg-card: var(--card);
   color-scheme: dark;
 }
 
@@ -45,6 +47,8 @@
   --topbar-bg: rgba(242,242,247,.82);
   --hover-bg:  rgba(0,0,0,.04);
   --active-bg: rgba(0,122,255,.1);
+  --text-secondary: var(--subtext);
+  --bg-card: var(--card);
   color-scheme: light;
 }
 
@@ -765,6 +769,202 @@ select.form-input { cursor: pointer; }
 
 .outcome-date-range .form-input {
   min-width: 0;
+}
+
+/* ── TAB NAVIGATION ─────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.tab-btn {
+  padding: 9px 18px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: color .15s, border-color .15s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── FORM GRID / FIELDS (shared) ───────────────────── */
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.form-field { display: flex; flex-direction: column; gap: 6px; }
+.form-field-full { grid-column: 1 / -1; }
+.form-hint { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+/* ── SALARY BREAKDOWN CARD ─────────────────────────── */
+.salary-breakdown-card {
+  background: var(--bg-card, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.salary-breakdown-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.salary-breakdown-rows { display: flex; flex-direction: column; gap: 6px; }
+.salary-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.salary-breakdown-total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+.salary-breakdown-patients { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.salary-breakdown-patients-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* ── SALARY DEBT HINT ──────────────────────────────── */
+.salary-debt-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ── SALARY PAYMENT HISTORY ────────────────────────── */
+.salary-history-section {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.salary-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.salary-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.salary-history-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card, var(--surface));
+}
+.salary-history-item-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.salary-history-item-note {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+.text-secondary { color: var(--subtext); }
+.salary-history-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+.btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+.btn-danger:hover:not([disabled]) { opacity: 0.85; }
+
+/* ── SHIFT SELECTION ───────────────────────────────── */
+.shift-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.shift-select-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--bg-card, var(--surface));
+  transition: border-color .12s, background .12s;
+  margin-bottom: 4px;
+}
+.shift-select-item:hover { border-color: var(--accent); }
+.shift-select-item.selected {
+  border-color: var(--accent);
+  background: var(--active-bg);
+}
+.shift-select-check {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--accent);
+  flex-shrink: 0;
+  background: var(--surface);
+}
+.shift-select-item.selected .shift-select-check {
+  border-color: var(--accent);
+  background: var(--active-bg);
+}
+.shift-select-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.shift-select-date { font-size: 13px; font-weight: 500; color: var(--text); }
+.shift-select-pay {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+@media (max-width: 600px) {
+  .form-grid-2 { grid-template-columns: 1fr; }
+  .form-field-full { grid-column: 1; }
+  .form-actions { flex-direction: column-reverse; }
+  .form-actions .btn { width: 100%; }
 }
 
 /* ── ANIMATIONS ─────────────────────────────────── */
@@ -1584,6 +1784,8 @@ select.form-input { cursor: pointer; }
   --hover-bg:  rgba(77,159,255,.07);
   --active-bg: rgba(77,159,255,.18);
   --font-ui:   -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  --text-secondary: var(--subtext);
+  --bg-card: var(--card);
   color-scheme: dark;
 }
 

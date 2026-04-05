@@ -1439,28 +1439,55 @@ def pay_salary():
             weekend_hours = 0.0
             try:
                 ensure_shifts_salary_payment_column(conn)
-                cur.execute(
-                    """
-                    SELECT
-                        COALESCE(SUM(
-                            CASE WHEN EXTRACT(ISODOW FROM start_time) < 6 THEN
-                                (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
-                                * (COALESCE(completion_percent, 100) / 100.0)
-                            ELSE 0 END
-                        ), 0),
-                        COALESCE(SUM(
-                            CASE WHEN EXTRACT(ISODOW FROM start_time) >= 6 THEN
-                                (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
-                                * (COALESCE(completion_percent, 100) / 100.0)
-                            ELSE 0 END
-                        ), 0)
-                    FROM shifts
-                    WHERE staff_id = %s
-                      AND status IN ('accepted', 'approved')
-                      AND salary_payment_id IS NULL
-                    """,
-                    (staff_id,),
-                )
+                shift_ids_for_calc = data.get("shift_ids")
+                if shift_ids_for_calc and isinstance(shift_ids_for_calc, list) and len(shift_ids_for_calc) > 0:
+                    shift_ids_for_calc_clean = [int(s) for s in shift_ids_for_calc]
+                    cur.execute(
+                        """
+                        SELECT
+                            COALESCE(SUM(
+                                CASE WHEN EXTRACT(ISODOW FROM start_time) < 6 THEN
+                                    (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                    * (COALESCE(completion_percent, 100) / 100.0)
+                                ELSE 0 END
+                            ), 0),
+                            COALESCE(SUM(
+                                CASE WHEN EXTRACT(ISODOW FROM start_time) >= 6 THEN
+                                    (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                    * (COALESCE(completion_percent, 100) / 100.0)
+                                ELSE 0 END
+                            ), 0)
+                        FROM shifts
+                        WHERE id = ANY(%s)
+                          AND staff_id = %s
+                          AND status = 'accepted'
+                          AND salary_payment_id IS NULL
+                        """,
+                        (shift_ids_for_calc_clean, staff_id),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT
+                            COALESCE(SUM(
+                                CASE WHEN EXTRACT(ISODOW FROM start_time) < 6 THEN
+                                    (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                    * (COALESCE(completion_percent, 100) / 100.0)
+                                ELSE 0 END
+                            ), 0),
+                            COALESCE(SUM(
+                                CASE WHEN EXTRACT(ISODOW FROM start_time) >= 6 THEN
+                                    (EXTRACT(EPOCH FROM (end_time - start_time)) / 3600.0)
+                                    * (COALESCE(completion_percent, 100) / 100.0)
+                                ELSE 0 END
+                            ), 0)
+                        FROM shifts
+                        WHERE staff_id = %s
+                          AND status IN ('accepted', 'approved')
+                          AND salary_payment_id IS NULL
+                        """,
+                        (staff_id,),
+                    )
             except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 conn.rollback()
             else:
@@ -1585,17 +1612,33 @@ def pay_salary():
             cur.execute("SAVEPOINT shift_link_sp")
             try:
                 ensure_shifts_salary_payment_column(conn)
-                cur.execute(
-                    """
-                    UPDATE shifts
-                    SET salary_payment_id = %s,
-                        status = 'paid'
-                    WHERE staff_id = %s
-                      AND status = 'accepted'
-                      AND salary_payment_id IS NULL
-                    """,
-                    (payment_id, staff_id)
-                )
+                shift_ids = data.get("shift_ids")
+                if shift_ids and isinstance(shift_ids, list) and len(shift_ids) > 0:
+                    shift_ids_clean = [int(s) for s in shift_ids]
+                    cur.execute(
+                        """
+                        UPDATE shifts
+                        SET salary_payment_id = %s,
+                            status = 'paid'
+                        WHERE id = ANY(%s)
+                          AND staff_id = %s
+                          AND status = 'accepted'
+                          AND salary_payment_id IS NULL
+                        """,
+                        (payment_id, shift_ids_clean, staff_id)
+                    )
+                else:
+                    cur.execute(
+                        """
+                        UPDATE shifts
+                        SET salary_payment_id = %s,
+                            status = 'paid'
+                        WHERE staff_id = %s
+                          AND status = 'accepted'
+                          AND salary_payment_id IS NULL
+                        """,
+                        (payment_id, staff_id)
+                    )
             except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
                 cur.execute("ROLLBACK TO SAVEPOINT shift_link_sp")
             finally:
@@ -1649,6 +1692,187 @@ def pay_salary():
         raise
     finally:
         release_connection(conn)
+
+
+@staff_bp.route("/<int:staff_id>/unpaid-shifts", methods=["GET"])
+def get_unpaid_shifts(staff_id: int):
+    """Return all unpaid accepted shifts for a non-doctor staff member."""
+    conn = get_connection()
+    try:
+        ensure_shifts_salary_payment_column(conn)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM staff WHERE id = %s", (staff_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "staff_not_found"}), 404
+        cur.execute(
+            """
+            SELECT id, start_time, end_time, note,
+                   COALESCE(completion_percent, 100),
+                   COALESCE(pay_multiplier, 1.0),
+                   status
+            FROM shifts
+            WHERE staff_id = %s
+              AND status = 'accepted'
+              AND salary_payment_id IS NULL
+            ORDER BY start_time DESC
+            """,
+            (staff_id,),
+        )
+        rows = cur.fetchall()
+    finally:
+        release_connection(conn)
+
+    shifts = []
+    for row in rows:
+        s_id, start, end, note, comp, mult, status = row
+        duration_h = max((end - start).total_seconds() / 3600.0, 0.0)
+        salary_hours = round(duration_h * (float(comp) / 100.0), 2)
+        is_weekend = start.isoweekday() >= 6
+        shifts.append({
+            "id": s_id,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "note": note or "",
+            "completion_percent": float(comp),
+            "salary_hours": salary_hours,
+            "is_weekend": is_weekend,
+            "status": status,
+        })
+    return jsonify(shifts)
+
+
+@staff_bp.route("/<int:staff_id>/paid-shifts", methods=["GET"])
+def get_paid_shifts(staff_id: int):
+    """Return recently paid shifts for a non-doctor staff member (last 120 days)."""
+    conn = get_connection()
+    try:
+        ensure_shifts_salary_payment_column(conn)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM staff WHERE id = %s", (staff_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "staff_not_found"}), 404
+        cur.execute(
+            """
+            SELECT s.id, s.start_time, s.end_time, s.note,
+                   COALESCE(s.completion_percent, 100),
+                   COALESCE(s.pay_multiplier, 1.0),
+                   s.status,
+                   s.salary_payment_id,
+                   sp.payment_date
+            FROM shifts s
+            LEFT JOIN salary_payments sp ON sp.id = s.salary_payment_id
+            WHERE s.staff_id = %s
+              AND s.status = 'paid'
+              AND s.start_time >= NOW() - INTERVAL '120 days'
+            ORDER BY s.start_time DESC
+            """,
+            (staff_id,),
+        )
+        rows = cur.fetchall()
+    finally:
+        release_connection(conn)
+
+    shifts = []
+    for row in rows:
+        s_id, start, end, note, comp, mult, status, payment_id, payment_date = row
+        duration_h = max((end - start).total_seconds() / 3600.0, 0.0)
+        salary_hours = round(duration_h * (float(comp) / 100.0), 2)
+        is_weekend = start.isoweekday() >= 6
+        shifts.append({
+            "id": s_id,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "note": note or "",
+            "completion_percent": float(comp),
+            "salary_hours": salary_hours,
+            "is_weekend": is_weekend,
+            "status": status,
+            "salary_payment_id": payment_id,
+            "payment_date": payment_date.isoformat() if payment_date else None,
+        })
+    return jsonify(shifts)
+
+
+@staff_bp.route("/<int:staff_id>/shifts/revert", methods=["POST"])
+def revert_shifts(staff_id: int):
+    """Revert paid shifts back to accepted (unlink from salary payment)."""
+    data = request.get_json(silent=True) or {}
+    shift_ids = data.get("shift_ids")
+    if not shift_ids or not isinstance(shift_ids, list) or len(shift_ids) == 0:
+        return jsonify({"error": "shift_ids required"}), 400
+
+    shift_ids_clean = [int(s) for s in shift_ids]
+
+    conn = get_connection()
+    try:
+        ensure_shifts_salary_payment_column(conn)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM staff WHERE id = %s", (staff_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "staff_not_found"}), 404
+
+        cur.execute(
+            """
+            UPDATE shifts
+            SET salary_payment_id = NULL,
+                status = 'accepted'
+            WHERE id = ANY(%s)
+              AND staff_id = %s
+              AND status = 'paid'
+            RETURNING id
+            """,
+            (shift_ids_clean, staff_id),
+        )
+        reverted = [row[0] for row in cur.fetchall()]
+        conn.commit()
+    finally:
+        release_connection(conn)
+
+    return jsonify({"status": "ok", "reverted": reverted})
+
+
+@staff_bp.route("/<int:staff_id>/salary-notes", methods=["POST"])
+def create_salary_note(staff_id: int):
+    """Create a text note in salary history without creating a financial payment."""
+    data = request.get_json(silent=True) or {}
+    note = str(data.get("note", "")).strip()
+    if not note:
+        return jsonify({"error": "note required"}), 400
+    note_date_raw = data.get("date") or date.today().isoformat()
+    try:
+        note_date = datetime.strptime(note_date_raw, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "invalid_date"}), 400
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM staff WHERE id = %s", (staff_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "staff_not_found"}), 404
+
+        # Insert with amount=0 flagged as note_only
+        # Ensure note_only column exists
+        cur.execute(
+            """
+            ALTER TABLE salary_payments
+            ADD COLUMN IF NOT EXISTS note_only BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO salary_payments (staff_id, amount, payment_date, note, note_only)
+            VALUES (%s, 0, %s, %s, TRUE)
+            RETURNING id
+            """,
+            (staff_id, note_date, note),
+        )
+        new_id = cur.fetchone()[0]
+        conn.commit()
+    finally:
+        release_connection(conn)
+
+    return jsonify({"status": "ok", "id": new_id}), 201
 
 
 @staff_bp.route("/stats", methods=["GET"])

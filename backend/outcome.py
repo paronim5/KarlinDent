@@ -7,7 +7,7 @@ from flask import Blueprint, Response, jsonify, request
 import psycopg2
 
 from .db import get_connection, release_connection
-from .staff import pay_salary as staff_pay_salary
+from .staff import pay_salary as staff_pay_salary, ensure_shifts_salary_payment_column
 
 
 outcome_bp = Blueprint("outcome", __name__)
@@ -101,17 +101,32 @@ def get_outcome_records():
         )
         outcome_rows = cur.fetchall()
         
-        # Fetch salary payments
-        cur.execute(
-            """
-            SELECT sp.id, sp.staff_id, st.first_name, st.last_name, sp.amount, sp.payment_date, sp.note, sp.created_at
-            FROM salary_payments sp
-            JOIN staff st ON st.id = sp.staff_id
-            WHERE sp.payment_date BETWEEN %s AND %s
-            ORDER BY sp.payment_date DESC, sp.created_at DESC
-            """,
-            (start_date, end_date),
-        )
+        # Fetch salary payments (exclude note-only entries)
+        try:
+            cur.execute(
+                """
+                SELECT sp.id, sp.staff_id, st.first_name, st.last_name, sp.amount, sp.payment_date, sp.note, sp.created_at
+                FROM salary_payments sp
+                JOIN staff st ON st.id = sp.staff_id
+                WHERE sp.payment_date BETWEEN %s AND %s
+                  AND (sp.note_only IS NULL OR sp.note_only = FALSE)
+                ORDER BY sp.payment_date DESC, sp.created_at DESC
+                """,
+                (start_date, end_date),
+            )
+        except psycopg2.errors.UndefinedColumn:
+            conn.rollback()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT sp.id, sp.staff_id, st.first_name, st.last_name, sp.amount, sp.payment_date, sp.note, sp.created_at
+                FROM salary_payments sp
+                JOIN staff st ON st.id = sp.staff_id
+                WHERE sp.payment_date BETWEEN %s AND %s
+                ORDER BY sp.payment_date DESC, sp.created_at DESC
+                """,
+                (start_date, end_date),
+            )
         salary_rows = cur.fetchall()
         
     finally:
@@ -208,10 +223,63 @@ def delete_salary_payment(payment_id: int):
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("DELETE FROM salary_payments WHERE id = %s RETURNING id", (payment_id,))
+
+        # Fetch the payment along with the staff role before deleting
+        cur.execute(
+            """
+            SELECT sp.id, sp.staff_id, r.name AS role_name
+            FROM salary_payments sp
+            JOIN staff s ON s.id = sp.staff_id
+            JOIN staff_roles r ON r.id = s.role_id
+            WHERE sp.id = %s
+            """,
+            (payment_id,),
+        )
         row = cur.fetchone()
         if not row:
             return jsonify({"error": "not_found"}), 404
+
+        staff_id = row[1]
+        role_name = row[2]
+
+        # Revert linked records before deleting the payment
+        if role_name == "doctor":
+            cur.execute(
+                """
+                UPDATE income_records
+                SET salary_payment_id = NULL
+                WHERE salary_payment_id = %s
+                """,
+                (payment_id,),
+            )
+        else:
+            try:
+                ensure_shifts_salary_payment_column(conn)
+                cur.execute(
+                    """
+                    UPDATE shifts
+                    SET salary_payment_id = NULL,
+                        status = 'accepted'
+                    WHERE salary_payment_id = %s
+                      AND staff_id = %s
+                    """,
+                    (payment_id, staff_id),
+                )
+            except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+                conn.rollback()
+                cur = conn.cursor()
+
+        # Unlink any salary adjustments tied to this payment
+        cur.execute(
+            """
+            UPDATE salary_adjustments
+            SET applied_to_salary_payment_id = NULL
+            WHERE applied_to_salary_payment_id = %s
+            """,
+            (payment_id,),
+        )
+
+        cur.execute("DELETE FROM salary_payments WHERE id = %s", (payment_id,))
         conn.commit()
     finally:
         release_connection(conn)

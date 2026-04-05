@@ -56,6 +56,20 @@ export default function AddOutcomePage() {
 
   const [resetCounter, setResetCounter] = useState(true);
 
+  // Shift selection & revert
+  const [unpaidShifts, setUnpaidShifts] = useState([]);
+  const [paidShifts, setPaidShifts] = useState([]);
+  const [selectedShiftIds, setSelectedShiftIds] = useState([]);
+  const [shiftsLoading, setShiftsLoading] = useState(false);
+  const [revertShiftIds, setRevertShiftIds] = useState([]);
+  const [reverting, setReverting] = useState(false);
+  const [shiftMode, setShiftMode] = useState("select"); // "select" | "revert"
+
+  // Note-only mode
+  const [noteOnlyMode, setNoteOnlyMode] = useState(false);
+  const [noteOnlyForm, setNoteOnlyForm] = useState({ note: "", date: new Date().toISOString().slice(0, 10) });
+  const [savingNote, setSavingNote] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -145,6 +159,59 @@ export default function AddOutcomePage() {
     }
   };
 
+  const loadShifts = async (staffId) => {
+    setShiftsLoading(true);
+    try {
+      const [unpaid, paid] = await Promise.all([
+        api.get(`/staff/${staffId}/unpaid-shifts`),
+        api.get(`/staff/${staffId}/paid-shifts`),
+      ]);
+      setUnpaidShifts(unpaid);
+      setPaidShifts(paid);
+      setSelectedShiftIds([]);
+      setRevertShiftIds([]);
+    } catch (err) {
+      console.error("Failed to load shifts", err);
+    } finally {
+      setShiftsLoading(false);
+    }
+  };
+
+  const handleRevertShifts = async () => {
+    if (revertShiftIds.length === 0) return;
+    setReverting(true);
+    try {
+      await api.post(`/staff/${selectedStaffId}/shifts/revert`, { shift_ids: revertShiftIds });
+      window.dispatchEvent(new CustomEvent("toast", { detail: { type: "success", message: `${revertShiftIds.length} shift(s) reverted to unpaid` } }));
+      await loadShifts(selectedStaffId);
+    } catch (err) {
+      setError(err.message || "Failed to revert shifts");
+    } finally {
+      setReverting(false);
+    }
+  };
+
+  const handleSaveNoteOnly = async (e) => {
+    e.preventDefault();
+    if (!noteOnlyForm.note.trim()) { setError("Note text is required"); return; }
+    setSavingNote(true);
+    setError("");
+    try {
+      await api.post(`/staff/${selectedStaffId}/salary-notes`, {
+        note: noteOnlyForm.note.trim(),
+        date: noteOnlyForm.date,
+      });
+      window.dispatchEvent(new CustomEvent("toast", { detail: { type: "success", message: "Note saved" } }));
+      setNoteOnlyForm({ note: "", date: new Date().toISOString().slice(0, 10) });
+      // Reload notes
+      setSalaryNotesPage(1);
+    } catch (err) {
+      setError(err.message || "Failed to save note");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
   // Load salary estimate when staff is selected
   useEffect(() => {
     if (!selectedStaffId) {
@@ -158,6 +225,10 @@ export default function AddOutcomePage() {
       setSalaryNotesTotal(0);
       setSalaryNotesPage(1);
       setSalaryNotesError("");
+      setUnpaidShifts([]);
+      setPaidShifts([]);
+      setSelectedShiftIds([]);
+      setRevertShiftIds([]);
       setError("");
       return;
     }
@@ -286,6 +357,15 @@ export default function AddOutcomePage() {
     fetchTimesheets();
   }, [selectedStaffId, salaryRange.from, salaryRange.to, staffList]);
 
+  // Load shifts for non-doctor staff
+  useEffect(() => {
+    if (!selectedStaffId || staffList.length === 0) return;
+    const staffMember = staffList.find((s) => String(s.id) === String(selectedStaffId));
+    if (!staffMember || staffMember.role === "doctor") return;
+    loadShifts(selectedStaffId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStaffId, staffList]);
+
   const handleGeneralSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -387,6 +467,7 @@ export default function AddOutcomePage() {
       };
       if (range.from) payload.from = range.from;
       if (range.to) payload.to = range.to;
+      if (selectedShiftIds.length > 0) payload.shift_ids = selectedShiftIds;
 
       const response = await api.post("/staff/salaries", payload);
 
@@ -420,7 +501,25 @@ export default function AddOutcomePage() {
     : null;
 
   const showTimesheetSummary = Boolean(timesheetSummary);
+
+  // Compute amount from selected shifts
+  const selectedShiftsAmount = useMemo(() => {
+    if (selectedShiftIds.length === 0) return NaN;
+    const staffMember = staffList.find((s) => String(s.id) === String(selectedStaffId));
+    if (!staffMember) return NaN;
+    const baseRate = toNumber(staffMember.base_salary, 0);
+    const wkndRate = toNumber(staffMember.weekend_salary ?? 200, 200);
+    let total = 0;
+    for (const id of selectedShiftIds) {
+      const sh = unpaidShifts.find((s) => s.id === id);
+      if (!sh) continue;
+      total += sh.is_weekend ? sh.salary_hours * wkndRate : sh.salary_hours * baseRate;
+    }
+    return Number(total.toFixed(2));
+  }, [selectedShiftIds, unpaidShifts, staffList, selectedStaffId]);
+
   const suggestedAmount = useMemo(() => {
+    if (selectedShiftIds.length > 0) return selectedShiftsAmount;
     if (showTimesheetSummary && timesheetSummary) {
       return toNumber(timesheetSummary.amount, NaN);
     }
@@ -428,8 +527,15 @@ export default function AddOutcomePage() {
       return toNumber(salaryMetrics.adjustedTotal, NaN);
     }
     return NaN;
-  }, [showTimesheetSummary, timesheetSummary, salaryMetrics]);
+  }, [selectedShiftIds, selectedShiftsAmount, showTimesheetSummary, timesheetSummary, salaryMetrics]);
   const totalSalaryNotePages = Math.max(1, Math.ceil(salaryNotesTotal / 10));
+  // When shift selection changes, auto-fill amount if not manually set
+  useEffect(() => {
+    if (!hasManualSalaryAmount && Number.isFinite(selectedShiftsAmount)) {
+      setSalaryForm(p => ({ ...p, amount: selectedShiftsAmount.toFixed(2) }));
+    }
+  }, [selectedShiftsAmount]);
+
   const openSignatureModal = () => {
     if (!selectedStaffId) return;
     setSignatureError("");
@@ -646,25 +752,16 @@ export default function AddOutcomePage() {
 
 
   return (
-    <div className="panel" style={{ width: '100%' }}>
-      <div className="panel-header" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="panel">
+      <div className="panel-header">
         <div className="panel-title">{t("nav.add_outcome", { defaultValue: "Add Outcome" })}</div>
       </div>
 
-      <div className="tabs outcome-tabs" style={{ display: 'flex', gap: '16px', marginBottom: '24px', borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs outcome-tabs">
         <button
           type="button"
           className={`tab-btn ${activeTab === "general" ? "active" : ""}`}
           onClick={() => setActiveTab("general")}
-          style={{
-            padding: '8px 16px',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === "general" ? '2px solid var(--accent)' : '2px solid transparent',
-            color: activeTab === "general" ? 'var(--accent)' : 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontWeight: '500'
-          }}
         >
           {t("outcome.expenses")}
         </button>
@@ -672,15 +769,6 @@ export default function AddOutcomePage() {
           type="button"
           className={`tab-btn ${activeTab === "salary" ? "active" : ""}`}
           onClick={() => setActiveTab("salary")}
-          style={{
-            padding: '8px 16px',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === "salary" ? '2px solid var(--accent)' : '2px solid transparent',
-            color: activeTab === "salary" ? 'var(--accent)' : 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontWeight: '500'
-          }}
         >
           {t("outcome.salaries")}
         </button>
@@ -690,8 +778,8 @@ export default function AddOutcomePage() {
 
       {activeTab === "general" && (
         <form onSubmit={handleGeneralSubmit}>
-          <div className="outcome-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-            <div>
+          <div className="form-grid-2">
+            <div className="form-field">
               <div className="form-label">{t("outcome.form.category")}</div>
               <select
                 className="form-input"
@@ -706,7 +794,7 @@ export default function AddOutcomePage() {
               </select>
             </div>
 
-            <div>
+            <div className="form-field">
               <div className="form-label">{t("outcome.form.amount")}</div>
               <input
                 className="form-input"
@@ -719,7 +807,7 @@ export default function AddOutcomePage() {
               />
             </div>
 
-            <div>
+            <div className="form-field">
               <div className="form-label">{t("outcome.form.date")}</div>
               <input
                 className="form-input"
@@ -730,7 +818,7 @@ export default function AddOutcomePage() {
               />
             </div>
 
-            <div>
+            <div className="form-field">
               <div className="form-label">{t("outcome.form.vendor")}</div>
               <input
                 className="form-input"
@@ -740,7 +828,7 @@ export default function AddOutcomePage() {
               />
             </div>
 
-            <div style={{ gridColumn: '1 / -1' }}>
+            <div className="form-field form-field-full">
               <div className="form-label">{t("outcome.form.description")}</div>
               <textarea
                 className="form-input"
@@ -751,7 +839,7 @@ export default function AddOutcomePage() {
             </div>
           </div>
 
-          <div className="outcome-form-actions" style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={() => navigate("/outcome")}>
               {t("common.cancel")}
             </button>
@@ -763,17 +851,18 @@ export default function AddOutcomePage() {
       )}
 
       {activeTab === "salary" && (
-        <form onSubmit={handleSalarySubmit}>
-          <div className="outcome-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-            <div>
+        <div>
+          {/* Staff selector row */}
+          <div className="form-grid-2" style={{ marginBottom: '20px' }}>
+            <div className="form-field">
               <div className="form-label">{t("outcome.form.staff")}</div>
               <select
                 className="form-input"
-                required
                 value={selectedStaffId}
                 onChange={(e) => {
                   setSelectedStaffId(e.target.value);
                   setHasManualSalaryAmount(false);
+                  setNoteOnlyMode(false);
                 }}
               >
                 <option value="">{t("outcome.form.staff")}</option>
@@ -785,278 +874,392 @@ export default function AddOutcomePage() {
               </select>
             </div>
 
-            {/* Period range picker — always visible for non-doctor staff */}
-            {selectedStaffId && staffList.find(s => String(s.id) === String(selectedStaffId))?.role !== "doctor" && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <div className="form-label">{t("outcome.salary_panel.period")} {t("outcome.form.date_from", "From")}</div>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={salaryRange.from}
-                    max={salaryRange.to || undefined}
-                    onChange={e => {
-                      prefillAmountRef.current = null;
-                      setPrefillAmount(null);
-                      setHasManualSalaryAmount(false);
-                      setSalaryRange(p => ({ ...p, from: e.target.value }));
-                    }}
-                  />
-                </div>
-                <div>
-                  <div className="form-label">{t("outcome.salary_panel.period")} {t("outcome.form.date_to", "To")}</div>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={salaryRange.to}
-                    min={salaryRange.from || undefined}
-                    onChange={e => {
-                      prefillAmountRef.current = null;
-                      setPrefillAmount(null);
-                      setHasManualSalaryAmount(false);
-                      setSalaryRange(p => ({ ...p, to: e.target.value }));
-                    }}
-                  />
+            {/* Mode toggle: pay salary / add note */}
+            {selectedStaffId && (
+              <div className="form-field">
+                <div className="form-label">Mode</div>
+                <div className="toggle-group">
+                  <button type="button" className={`toggle-opt${!noteOnlyMode ? " on" : ""}`} onClick={() => setNoteOnlyMode(false)}>
+                    Pay Salary
+                  </button>
+                  <button type="button" className={`toggle-opt${noteOnlyMode ? " on" : ""}`} onClick={() => setNoteOnlyMode(true)}>
+                    Add Note
+                  </button>
                 </div>
               </div>
             )}
+          </div>
 
-            {showTimesheetSummary && (
-              <div className="panel" style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px' }}>
-                <div style={{ fontSize: '14px', fontWeight: '500', marginBottom: '8px' }}>{t("outcome.salary_panel.breakdown")}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.period")}:</span>
-                  <span>{salaryRange.from} → {salaryRange.to}</span>
+          {/* ── NOTE-ONLY MODE ── */}
+          {selectedStaffId && noteOnlyMode && (
+            <form onSubmit={handleSaveNoteOnly}>
+              <div className="form-grid-2">
+                <div className="form-field">
+                  <div className="form-label">Date</div>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={noteOnlyForm.date}
+                    onChange={(e) => setNoteOnlyForm(p => ({ ...p, date: e.target.value }))}
+                  />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>Weekday Hours:</span>
-                  <span>{(timesheetSummary.weekdayHours ?? 0).toFixed(2)}h</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>Weekend Hours:</span>
-                  <span>{(timesheetSummary.weekendHours ?? 0).toFixed(2)}h</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.base_rate")}:</span>
-                  <span>{formatNumber(timesheetSummary.baseRate, { minimumFractionDigits: 2 })}/h</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>Weekend Rate:</span>
-                  <span>{formatNumber(timesheetSummary.weekendRate ?? 200, { minimumFractionDigits: 2 })}/h</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '600', borderTop: '1px solid var(--border)', paddingTop: '4px', marginTop: '4px' }}>
-                  <span>{t("outcome.salary_panel.calculated_salary")}:</span>
-                  <span>{formatNumber(timesheetSummary.amount, { minimumFractionDigits: 2 })}</span>
+                <div className="form-field form-field-full">
+                  <div className="form-label">Note</div>
+                  <textarea
+                    className="form-input"
+                    rows={3}
+                    required
+                    value={noteOnlyForm.note}
+                    onChange={(e) => setNoteOnlyForm(p => ({ ...p, note: e.target.value }))}
+                    placeholder="Enter note text…"
+                  />
                 </div>
               </div>
-            )}
+              <div className="form-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => navigate("/outcome")}>{t("common.cancel")}</button>
+                <button type="submit" className="btn btn-primary" disabled={savingNote || !noteOnlyForm.note.trim()}>
+                  {savingNote ? "Saving…" : "Save Note"}
+                </button>
+              </div>
+            </form>
+          )}
 
-            {!showTimesheetSummary && salaryMetrics && (
-              <div className="panel" style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px' }}>
-                <div style={{ fontSize: '14px', fontWeight: '500', marginBottom: '8px' }}>{t("outcome.salary_panel.breakdown")}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.last_payment")}:</span>
-                  <span>{salaryEstimate.last_paid_at || t("outcome.salary_panel.never")}</span>
+          {/* ── SALARY PAYMENT MODE ── */}
+          {(!selectedStaffId || !noteOnlyMode) && (
+            <form onSubmit={handleSalarySubmit}>
+              <div className="form-grid-2">
+                {/* Payment date */}
+                <div className="form-field">
+                  <div className="form-label">{t("outcome.form.date")}</div>
+                  <input
+                    className="form-input"
+                    type="date"
+                    required
+                    value={salaryForm.paymentDate}
+                    onChange={(e) => setSalaryForm(p => ({ ...p, paymentDate: e.target.value }))}
+                  />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.base_salary")}:</span>
-                  <span>{formatNumber(salaryMetrics.baseSalary, { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.commission", { rate: formatNumber(salaryMetrics.commissionRate * 100, { maximumFractionDigits: 2 }), income: formatNumber(salaryMetrics.totalIncome) })}:</span>
-                  <span>{formatNumber(salaryMetrics.commissionPart, { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.lab_fees_deduction")}:</span>
-                  <span>-{formatNumber(salaryMetrics.totalLabFees, { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                  <span>{t("outcome.salary_panel.adjustments")}:</span>
-                  <span>{formatNumber(salaryMetrics.adjustments, { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '600', borderTop: '1px solid var(--border)', paddingTop: '4px', marginTop: '4px' }}>
-                  <span>{t("outcome.salary_panel.total_estimated")}:</span>
-                  <span>{formatNumber(salaryMetrics.adjustedTotal, { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {t("outcome.salary_panel.unpaid_patients", { count: salaryMetrics.unpaidPatients.length })}
-                </div>
-                {salaryMetrics.unpaidPatients.length > 0 && (
-                  <div style={{ marginTop: '6px', display: 'grid', gap: '4px', maxHeight: '120px', overflowY: 'auto' }}>
-                    {salaryMetrics.unpaidPatients.map((patient, idx) => (
-                      <div key={`${patient.name}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <span>{patient.name}</span>
-                        <span className="mono">{formatNumber(patient.net_paid, { minimumFractionDigits: 2 })}</span>
+
+                {/* Period range — non-doctor only */}
+                {selectedStaffId && staffList.find(s => String(s.id) === String(selectedStaffId))?.role !== "doctor" && (
+                  <>
+                    <div className="form-field">
+                      <div className="form-label">{t("outcome.form.date_from", "Period from")}</div>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={salaryRange.from}
+                        max={salaryRange.to || undefined}
+                        onChange={e => {
+                          prefillAmountRef.current = null;
+                          setPrefillAmount(null);
+                          setHasManualSalaryAmount(false);
+                          setSalaryRange(p => ({ ...p, from: e.target.value }));
+                        }}
+                      />
+                    </div>
+                    <div className="form-field">
+                      <div className="form-label">{t("outcome.form.date_to", "Period to")}</div>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={salaryRange.to}
+                        min={salaryRange.from || undefined}
+                        onChange={e => {
+                          prefillAmountRef.current = null;
+                          setPrefillAmount(null);
+                          setHasManualSalaryAmount(false);
+                          setSalaryRange(p => ({ ...p, to: e.target.value }));
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* Salary breakdown summary */}
+                {(showTimesheetSummary || salaryMetrics) && selectedShiftIds.length === 0 && (
+                  <div className="form-field form-field-full">
+                    <div className="salary-breakdown-card">
+                      <div className="salary-breakdown-title">{t("outcome.salary_panel.breakdown")}</div>
+                      <div className="salary-breakdown-rows">
+                        {showTimesheetSummary ? (
+                          <>
+                            <div className="salary-breakdown-row">
+                              <span>Weekday hours</span>
+                              <span className="mono">{(timesheetSummary.weekdayHours ?? 0).toFixed(1)}h × {formatNumber(timesheetSummary.baseRate, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="salary-breakdown-row">
+                              <span>Weekend hours</span>
+                              <span className="mono">{(timesheetSummary.weekendHours ?? 0).toFixed(1)}h × {formatNumber(timesheetSummary.weekendRate ?? 200, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="salary-breakdown-total">
+                              <span>{t("outcome.salary_panel.calculated_salary")}</span>
+                              <span className="mono">{formatNumber(timesheetSummary.amount, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="salary-breakdown-row">
+                              <span>{t("outcome.salary_panel.last_payment")}</span>
+                              <span>{salaryEstimate.last_paid_at || t("outcome.salary_panel.never")}</span>
+                            </div>
+                            <div className="salary-breakdown-row">
+                              <span>{t("outcome.salary_panel.commission", { rate: formatNumber(salaryMetrics.commissionRate * 100, { maximumFractionDigits: 2 }), income: formatNumber(salaryMetrics.totalIncome) })}</span>
+                              <span className="mono">{formatNumber(salaryMetrics.commissionPart, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            {salaryMetrics.totalLabFees > 0 && (
+                              <div className="salary-breakdown-row">
+                                <span>{t("outcome.salary_panel.lab_fees_deduction")}</span>
+                                <span className="mono" style={{ color: 'var(--red)' }}>−{formatNumber(salaryMetrics.totalLabFees, { minimumFractionDigits: 2 })}</span>
+                              </div>
+                            )}
+                            {salaryMetrics.adjustments !== 0 && (
+                              <div className="salary-breakdown-row">
+                                <span>{t("outcome.salary_panel.adjustments")}</span>
+                                <span className="mono">{formatNumber(salaryMetrics.adjustments, { minimumFractionDigits: 2 })}</span>
+                              </div>
+                            )}
+                            <div className="salary-breakdown-total">
+                              <span>{t("outcome.salary_panel.total_estimated")}</span>
+                              <span className="mono">{formatNumber(salaryMetrics.adjustedTotal, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            {salaryMetrics.unpaidPatients.length > 0 && (
+                              <div className="salary-breakdown-patients">
+                                <div className="salary-breakdown-patients-label">{t("outcome.salary_panel.unpaid_patients", { count: salaryMetrics.unpaidPatients.length })}</div>
+                                {salaryMetrics.unpaidPatients.map((patient, idx) => (
+                                  <div key={`${patient.name}-${idx}`} className="salary-breakdown-row">
+                                    <span>{patient.name}</span>
+                                    <span className="mono">{formatNumber(patient.net_paid, { minimumFractionDigits: 2 })}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
-                    ))}
+                    </div>
                   </div>
                 )}
-              </div>
-            )}
 
-            <div>
-              <div className="form-label">{t("outcome.form.amount")}</div>
-              <input
-                className="form-input"
-                type="number"
-                step="0.01"
-                min="0.01"
-                required
-                value={salaryForm.amount}
-                onChange={(e) => {
-                  setHasManualSalaryAmount(true);
-                  setSalaryForm(p => ({ ...p, amount: e.target.value }));
-                }}
-              />
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                {t("outcome.hints.adjust_amount")}
-              </div>
-            </div>
+                {/* Amount */}
+                <div className="form-field">
+                  <div className="form-label">{t("outcome.form.amount")}</div>
+                  <input
+                    className="form-input"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={salaryForm.amount}
+                    onChange={(e) => {
+                      setHasManualSalaryAmount(true);
+                      setSalaryForm(p => ({ ...p, amount: e.target.value }));
+                    }}
+                  />
+                  {Number.isFinite(suggestedAmount) && hasManualSalaryAmount && (
+                    <div className="form-hint">Calculated: {formatNumber(suggestedAmount, { minimumFractionDigits: 2 })}</div>
+                  )}
+                </div>
 
-            <div>
-              <div className="form-label">{t("outcome.form.date")}</div>
-              <input
-                className="form-input"
-                type="date"
-                required
-                value={salaryForm.paymentDate}
-                onChange={(e) => setSalaryForm(p => ({ ...p, paymentDate: e.target.value }))}
-              />
-            </div>
+                {/* Note */}
+                <div className="form-field">
+                  <div className="form-label">{t("outcome.form.note")}</div>
+                  <textarea
+                    className="form-input"
+                    rows={2}
+                    value={salaryForm.note}
+                    onChange={(e) => setSalaryForm(p => ({ ...p, note: e.target.value }))}
+                  />
+                </div>
 
-            <div style={{ gridColumn: '1 / -1' }}>
-              <div className="form-label">{t("outcome.form.note")}</div>
-              <textarea
-                className="form-input"
-                rows={2}
-                value={salaryForm.note}
-                onChange={(e) => setSalaryForm(p => ({ ...p, note: e.target.value }))}
-                placeholder=""
-              />
-            </div>
-
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={resetCounter}
-                  onChange={(e) => setResetCounter(e.target.checked)}
-                />
-                <span>{t("outcome.form.reset_counter", "Reset counter (no debt tracking)")}</span>
-              </label>
-            </div>
-
-            {!resetCounter && (() => {
-              const calculated = toNumber(suggestedAmount, NaN);
-              const paying = toNumber(salaryForm.amount, NaN);
-              const debt = Number.isFinite(calculated) && Number.isFinite(paying) ? calculated - paying : null;
-              const isPositive = debt !== null && debt > 0;
-              const isNegative = debt !== null && debt < 0;
-              return (
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <div className="panel" style={{
-                    background: isPositive ? 'rgba(34,197,94,0.06)' : isNegative ? 'rgba(239,68,68,0.06)' : 'var(--bg-card)',
-                    border: `1px solid ${isPositive ? 'rgba(34,197,94,0.25)' : isNegative ? 'rgba(239,68,68,0.25)' : 'var(--border)'}`,
-                    padding: '14px 16px',
-                    borderRadius: '10px',
-                  }}>
-                    <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                      {t("outcome.form.debt_preview", "Debt after payment")}
-                    </div>
-                    {debt !== null ? (
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-                        <span style={{ fontSize: '22px', fontWeight: '700', fontFamily: 'var(--font-mono)', color: isPositive ? 'var(--green)' : isNegative ? 'var(--red)' : 'var(--text-secondary)' }}>
-                          {isPositive ? '+' : ''}{debt.toFixed(2)}
-                        </span>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {isPositive
-                            ? t("outcome.form.debt_owed", "owed to staff — added to next salary")
-                            : isNegative
-                              ? t("outcome.form.debt_overpaid", "overpaid — deducted from next salary")
-                              : t("outcome.form.debt_zero", "exact — no debt")}
-                        </span>
+                {/* Reset counter + debt */}
+                <div className="form-field form-field-full">
+                  <label className="check-row">
+                    <input type="checkbox" checked={resetCounter} onChange={(e) => setResetCounter(e.target.checked)} />
+                    <span>{t("outcome.form.reset_counter", "Mark shifts as paid (reset counter)")}</span>
+                  </label>
+                  {!resetCounter && (() => {
+                    const calculated = toNumber(suggestedAmount, NaN);
+                    const paying = toNumber(salaryForm.amount, NaN);
+                    const debt = Number.isFinite(calculated) && Number.isFinite(paying) ? calculated - paying : null;
+                    if (debt === null) return null;
+                    const isPositive = debt > 0;
+                    const isNegative = debt < 0;
+                    return (
+                      <div className="salary-debt-hint" style={{ color: isPositive ? 'var(--green)' : isNegative ? 'var(--red)' : 'var(--text-secondary)' }}>
+                        {isPositive ? `+${debt.toFixed(2)} — owed to staff, added to next salary` : isNegative ? `${debt.toFixed(2)} — overpaid, deducted from next salary` : "exact — no debt recorded"}
                       </div>
-                    ) : (
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Enter amount to preview debt</span>
-                    )}
-                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      {t("outcome.form.debt_calc", "Calculated")} {Number.isFinite(calculated) ? calculated.toFixed(2) : '—'} − {t("outcome.form.debt_paid", "Paid")} {Number.isFinite(paying) ? paying.toFixed(2) : '—'}
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* ── SHIFT SELECTION / REVERT (non-doctor only) ── */}
+              {selectedStaffId && staffList.find(s => String(s.id) === String(selectedStaffId))?.role !== "doctor" && (
+                <div className="salary-history-section">
+                  <div className="salary-history-header">
+                    <span className="form-label" style={{ margin: 0 }}>Shifts</span>
+                    <div className="toggle-group" style={{ width: 'auto' }}>
+                      <button type="button" className={`toggle-opt${shiftMode === "select" ? " on" : ""}`} onClick={() => { setShiftMode("select"); setRevertShiftIds([]); }}>
+                        Select to pay
+                      </button>
+                      <button type="button" className={`toggle-opt${shiftMode === "revert" ? " on" : ""}`} onClick={() => { setShiftMode("revert"); setSelectedShiftIds([]); }}>
+                        Revert paid
+                      </button>
                     </div>
                   </div>
-                </div>
-              );
-            })()}
-          </div>
 
-          {selectedStaffId && (
-            <div className="panel" style={{ marginTop: '20px', background: 'var(--bg-card)', padding: '16px', borderRadius: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ fontSize: '14px', fontWeight: '500' }}>{t("outcome.salary_notes.title")}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {t("outcome.salary_notes.total", { count: salaryNotesTotal })}
+                  {shiftsLoading && <div className="text-secondary" style={{ fontSize: '13px' }}>Loading shifts…</div>}
+
+                  {/* Select unpaid shifts to include in this payment */}
+                  {!shiftsLoading && shiftMode === "select" && (
+                    <>
+                      {unpaidShifts.length === 0 ? (
+                        <div className="text-secondary" style={{ fontSize: '13px' }}>No unpaid shifts found.</div>
+                      ) : (
+                        <>
+                          <div className="shift-select-actions">
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSelectedShiftIds(unpaidShifts.map(s => s.id))}>Select all</button>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSelectedShiftIds([])}>Clear</button>
+                            {selectedShiftIds.length > 0 && (
+                              <span className="text-secondary" style={{ fontSize: '12px' }}>
+                                {selectedShiftIds.length} selected · {formatNumber(selectedShiftsAmount, { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+                          </div>
+                          <div className="salary-history-list">
+                            {unpaidShifts.map((sh) => {
+                              const checked = selectedShiftIds.includes(sh.id);
+                              const start = new Date(sh.start);
+                              const staffMember = staffList.find(s => String(s.id) === String(selectedStaffId));
+                              const rate = sh.is_weekend ? toNumber(staffMember?.weekend_salary ?? 200, 200) : toNumber(staffMember?.base_salary, 0);
+                              const pay = (sh.salary_hours * rate).toFixed(2);
+                              return (
+                                <label key={sh.id} className={`shift-select-item${checked ? " selected" : ""}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => setSelectedShiftIds(p => checked ? p.filter(id => id !== sh.id) : [...p, sh.id])}
+                                    style={{ display: 'none' }}
+                                  />
+                                  <div className="shift-select-check">{checked ? "✓" : ""}</div>
+                                  <div className="shift-select-info">
+                                    <span className="shift-select-date">
+                                      {start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                                      {sh.is_weekend && <span className="pill pill-blue" style={{ marginLeft: '6px', fontSize: '10px', padding: '1px 5px' }}>WE</span>}
+                                    </span>
+                                    <span className="text-secondary" style={{ fontSize: '12px' }}>
+                                      {new Date(sh.start).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} – {new Date(sh.end).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                                      {" · "}{sh.salary_hours}h
+                                    </span>
+                                    {sh.note && <span className="text-secondary" style={{ fontSize: '12px' }}>{sh.note}</span>}
+                                  </div>
+                                  <div className="shift-select-pay mono">{pay}</div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/* Revert paid shifts */}
+                  {!shiftsLoading && shiftMode === "revert" && (
+                    <>
+                      {paidShifts.length === 0 ? (
+                        <div className="text-secondary" style={{ fontSize: '13px' }}>No recently paid shifts found.</div>
+                      ) : (
+                        <>
+                          <div className="shift-select-actions">
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRevertShiftIds(paidShifts.map(s => s.id))}>Select all</button>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRevertShiftIds([])}>Clear</button>
+                            {revertShiftIds.length > 0 && (
+                              <button type="button" className="btn btn-danger btn-sm" disabled={reverting} onClick={handleRevertShifts}>
+                                {reverting ? "Reverting…" : `Revert ${revertShiftIds.length} shift(s)`}
+                              </button>
+                            )}
+                          </div>
+                          <div className="salary-history-list">
+                            {paidShifts.map((sh) => {
+                              const checked = revertShiftIds.includes(sh.id);
+                              const start = new Date(sh.start);
+                              return (
+                                <label key={sh.id} className={`shift-select-item${checked ? " selected" : ""}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => setRevertShiftIds(p => checked ? p.filter(id => id !== sh.id) : [...p, sh.id])}
+                                    style={{ display: 'none' }}
+                                  />
+                                  <div className="shift-select-check">{checked ? "✓" : ""}</div>
+                                  <div className="shift-select-info">
+                                    <span className="shift-select-date">
+                                      {start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                                      {sh.is_weekend && <span className="pill pill-blue" style={{ marginLeft: '6px', fontSize: '10px', padding: '1px 5px' }}>WE</span>}
+                                    </span>
+                                    <span className="text-secondary" style={{ fontSize: '12px' }}>
+                                      {new Date(sh.start).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} – {new Date(sh.end).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                                      {" · "}{sh.salary_hours}h
+                                      {sh.payment_date && ` · paid ${sh.payment_date}`}
+                                    </span>
+                                  </div>
+                                  <div className="shift-select-pay mono" style={{ color: 'var(--text-secondary)' }}>paid</div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
-              </div>
-              {salaryNotesLoading && <div style={{ color: 'var(--text-secondary)' }}>{t("outcome.salary_notes.loading")}</div>}
-              {!salaryNotesLoading && salaryNotesError && (
-                <div className="form-error">{salaryNotesError}</div>
               )}
-              {!salaryNotesLoading && !salaryNotesError && salaryNotes.length === 0 && (
-                <div style={{ color: 'var(--text-secondary)' }}>{t("outcome.salary_notes.empty")}</div>
-              )}
-              {!salaryNotesLoading && !salaryNotesError && salaryNotes.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto' }}>
-                  {salaryNotes.map((note) => (
-                    <div key={note.id} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        <span>{note.payment_date}</span>
-                        <span>{formatNumber(note.amount, { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div style={{ marginTop: '6px', fontSize: '13px' }}>{note.note || "—"}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {salaryNotesTotal > 10 && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={salaryNotesPage <= 1}
-                    onClick={() => setSalaryNotesPage((p) => Math.max(1, p - 1))}
-                  >
-                    {t("outcome.salary_notes.prev")}
-                  </button>
-                  <div style={{ alignSelf: 'center', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    {salaryNotesPage} / {totalSalaryNotePages}
+
+              {/* Payment history */}
+              {selectedStaffId && (
+                <div className="salary-history-section">
+                  <div className="salary-history-header">
+                    <span className="form-label" style={{ margin: 0 }}>{t("outcome.salary_notes.title")}</span>
+                    <span className="text-secondary" style={{ fontSize: '12px' }}>{t("outcome.salary_notes.total", { count: salaryNotesTotal })}</span>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={salaryNotesPage >= totalSalaryNotePages}
-                    onClick={() => setSalaryNotesPage((p) => Math.min(totalSalaryNotePages, p + 1))}
-                  >
-                    {t("outcome.salary_notes.next")}
-                  </button>
+                  {salaryNotesLoading && <div className="text-secondary">{t("outcome.salary_notes.loading")}</div>}
+                  {!salaryNotesLoading && salaryNotesError && <div className="form-error">{salaryNotesError}</div>}
+                  {!salaryNotesLoading && !salaryNotesError && salaryNotes.length === 0 && (
+                    <div className="text-secondary">{t("outcome.salary_notes.empty")}</div>
+                  )}
+                  {!salaryNotesLoading && !salaryNotesError && salaryNotes.length > 0 && (
+                    <div className="salary-history-list">
+                      {salaryNotes.map((note) => (
+                        <div key={note.id} className="salary-history-item">
+                          <div className="salary-history-item-meta">
+                            <span>{note.payment_date}</span>
+                            <span className="mono">{note.amount > 0 ? formatNumber(note.amount, { minimumFractionDigits: 2 }) : "note"}</span>
+                          </div>
+                          {note.note && <div className="salary-history-item-note">{note.note}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {salaryNotesTotal > 10 && (
+                    <div className="salary-history-pager">
+                      <button type="button" className="btn btn-secondary btn-sm" disabled={salaryNotesPage <= 1} onClick={() => setSalaryNotesPage(p => Math.max(1, p - 1))}>{t("outcome.salary_notes.prev")}</button>
+                      <span className="text-secondary" style={{ fontSize: '12px' }}>{salaryNotesPage} / {totalSalaryNotePages}</span>
+                      <button type="button" className="btn btn-secondary btn-sm" disabled={salaryNotesPage >= totalSalaryNotePages} onClick={() => setSalaryNotesPage(p => Math.min(totalSalaryNotePages, p + 1))}>{t("outcome.salary_notes.next")}</button>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          <div className="outcome-form-actions" style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate("/outcome")}>
-              {t("common.cancel")}
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={saving || !selectedStaffId}>
-              {saving ? t("common.loading") : t("outcome.form.submit_salary")}
-            </button>
-          </div>
-          
-          {salaryMetrics && (
-            <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(239,68,68,0.1)', color: 'var(--red)', borderRadius: '8px', fontSize: '13px' }}>
-              {t("outcome.warnings.reset_counter")}
-            </div>
+              <div className="form-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => navigate("/outcome")}>{t("common.cancel")}</button>
+                <button type="submit" className="btn btn-primary" disabled={saving || !selectedStaffId}>
+                  {saving ? t("common.loading") : t("outcome.form.submit_salary")}
+                </button>
+              </div>
+            </form>
           )}
-        </form>
+        </div>
       )}
 
       {signatureModalOpen && (

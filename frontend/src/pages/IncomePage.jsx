@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -43,6 +43,7 @@ export default function IncomePage() {
   const [deletingIds, setDeletingIds] = useState([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState([]);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
 
   const periodLabels = useMemo(
     () => ({
@@ -79,6 +80,29 @@ export default function IncomePage() {
   };
 
   const range = useMemo(() => computeRange(period), [period, customRange, viewDate]);
+
+  const downloadPatientsPdf = useCallback(async () => {
+    const { from, to } = range;
+    if (!from || !to) return;
+    setPdfDownloading(true);
+    try {
+      const response = await fetch(`/api/patients/report/pdf?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      if (!response.ok) throw new Error("Failed to generate PDF");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `patient_payments_${from}_${to}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "Failed to download PDF");
+    } finally {
+      setPdfDownloading(false);
+    }
+  }, [range]);
 
   const loadRecords = async (rangeFrom = range.from, rangeTo = range.to) => {
     if (!rangeFrom || !rangeTo) return;
@@ -489,6 +513,13 @@ export default function IncomePage() {
             </div>
           </div>
           <div className="topbar-actions">
+            <button
+              className="btn btn-ghost"
+              onClick={downloadPatientsPdf}
+              disabled={pdfDownloading || records.length === 0}
+            >
+              {pdfDownloading ? "Generating…" : "Export PDF"}
+            </button>
             <button className="btn btn-ghost" onClick={() => performDelete(selectedIds)} disabled={selectedIds.length === 0}>
               {t("common.delete")} ({selectedIds.length})
             </button>

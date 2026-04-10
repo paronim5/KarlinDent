@@ -595,6 +595,31 @@ export default function DoctorPage() {
     );
   };
 
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+
+  const exportPatientsPdf = async () => {
+    if (!range.from || !range.to) return;
+    setPdfDownloading(true);
+    try {
+      const url = `/api/patients/report/pdf?doctor_id=${id}&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to generate PDF");
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = `patient_payments_doctor_${id}_${range.from}_${range.to}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      setError(err.message || "Failed to download PDF");
+    } finally {
+      setPdfDownloading(false);
+    }
+  };
+
   const exportHourlyStats = () => {
     if (!selectedDate) return;
     window.open(
@@ -678,6 +703,9 @@ export default function DoctorPage() {
               <div className="topbar-actions">
                 <button className="btn btn-ghost" onClick={exportCommissionList} disabled={!range.from || !range.to}>
                   Export Patients
+                </button>
+                <button className="btn btn-ghost" onClick={exportPatientsPdf} disabled={!range.from || !range.to || pdfDownloading}>
+                  {pdfDownloading ? "Generating…" : "Export PDF"}
                 </button>
                 <button className="btn btn-ghost" onClick={exportHourlyStats} disabled={!selectedDate}>
                   Export Stats

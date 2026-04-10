@@ -385,6 +385,7 @@ export default function StaffPage() {
               />
               <span>{t("staff.show_debt", "Include debt")}</span>
             </label>
+            <button className="btn btn-ghost" onClick={() => navigate("/staff/doctors-report")}>Patient Report</button>
             <button className="btn btn-primary" onClick={openAddForm}>+ {t("staff.add_staff")}</button>
           </div>
         </div>

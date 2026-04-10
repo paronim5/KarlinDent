@@ -12,6 +12,7 @@ import StaffIncomeDashboard from "./pages/StaffIncomeDashboard.jsx";
 import DayDashboardPage from "./pages/DayDashboardPage.jsx";
 import SchedulePage from "./pages/SchedulePage.jsx";
 import SalaryReportPage from "./pages/SalaryReportPage.jsx";
+import DoctorsPatientReportPage from "./pages/DoctorsPatientReportPage.jsx";
 import PatientsPage from "./pages/PatientsPage.jsx";
 import PatientDetailPage from "./pages/PatientDetailPage.jsx";
 import Layout from "./components/Layout.jsx";
@@ -60,6 +61,7 @@ function AppRoutes() {
         <Route path="/outcome/add" element={<AddOutcomePage />} />
         <Route path="/outcome/salary-report" element={<SalaryReportPage />} />
         <Route path="/staff" element={<StaffPage />} />
+        <Route path="/staff/doctors-report" element={<DoctorsPatientReportPage />} />
         <Route path="/staff/doctor/:id" element={<DoctorPage />} />
         <Route path="/staff/role/:id" element={<StaffRolePage />} />
         <Route path="/schedule" element={<SchedulePage />} />

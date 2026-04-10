@@ -2684,6 +2684,332 @@ def staff_salary_report_data(staff_id: int):
     return jsonify(report)
 
 
+def build_doctors_patient_report_pdf(report_data: Dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, KeepTogether
+    except Exception as exc:
+        logger.exception("PDF dependency error: %s", exc)
+        raise
+
+    def fmt(value: Any) -> str:
+        amount = float(value or 0)
+        return f"{amount:,.2f} CZK"
+
+    page_w = A4[0]
+    content_w = page_w - 32 * mm
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        topMargin=16 * mm,
+        bottomMargin=20 * mm,
+    )
+    styles = getSampleStyleSheet()
+    elements = []
+    dark = colors.HexColor("#111827")
+    border_color = colors.HexColor("#d6d8e1")
+    header_bg = colors.HexColor("#1f2937")
+    muted_text = colors.HexColor("#6b7280")
+    accent = colors.HexColor("#f97316")
+    green = colors.HexColor("#16a34a")
+
+    normal_style = ParagraphStyle("N", parent=styles["Normal"], fontName="Helvetica", fontSize=9.5, leading=13, textColor=dark)
+    bold_style = ParagraphStyle("B", parent=normal_style, fontName="Helvetica-Bold")
+    value_style = ParagraphStyle("V", parent=normal_style, alignment=TA_RIGHT)
+    value_bold = ParagraphStyle("VB", parent=value_style, fontName="Helvetica-Bold")
+    title_style = ParagraphStyle("T", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=22, leading=26, textColor=dark, alignment=TA_LEFT, spaceAfter=2)
+    subtitle_style = ParagraphStyle("ST", parent=normal_style, fontName="Helvetica-Bold", fontSize=10, textColor=accent, spaceAfter=6)
+    section_style = ParagraphStyle("S", parent=normal_style, fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=dark, spaceBefore=14, spaceAfter=6)
+    muted_style = ParagraphStyle("M", parent=normal_style, fontSize=8.5, leading=11, textColor=muted_text)
+    total_label = ParagraphStyle("TL", parent=normal_style, fontName="Helvetica-Bold", fontSize=11, textColor=dark)
+    total_value_style = ParagraphStyle("TV", parent=normal_style, fontName="Helvetica-Bold", fontSize=11, textColor=dark, alignment=TA_RIGHT)
+    doctor_name_style = ParagraphStyle("DN", parent=normal_style, fontName="Helvetica-Bold", fontSize=13, leading=16, textColor=dark)
+    total_green = ParagraphStyle("TG", parent=total_value_style, textColor=green)
+
+    period_from = report_data["period"]["from"]
+    period_to = report_data["period"]["to"]
+    generated_at = report_data.get("generated_at", "")
+    doctors = report_data.get("doctors", [])
+
+    # ── Document header ──
+    elements.append(Paragraph("KarlinDent", subtitle_style))
+    elements.append(Paragraph("Patient Revenue Report", title_style))
+    elements.append(Spacer(1, 4))
+
+    meta_data = [
+        [Paragraph("Period", bold_style), Paragraph(f"{period_from}  —  {period_to}", normal_style)],
+        [Paragraph("Doctors", bold_style), Paragraph(str(len(doctors)), normal_style)],
+    ]
+    meta_table = Table(meta_data, colWidths=[30 * mm, content_w - 30 * mm])
+    meta_table.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, -1), 0.4, border_color),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elements.append(meta_table)
+    elements.append(Spacer(1, 8))
+
+    hdr_style = ParagraphStyle("TH", parent=normal_style, fontName="Helvetica-Bold", fontSize=9, textColor=colors.whitesmoke)
+    hdr_r_style = ParagraphStyle("THR", parent=hdr_style, alignment=TA_RIGHT)
+
+    grand_total = 0.0
+
+    for doctor in doctors:
+        staff_info = doctor.get("staff", {})
+        doctor_name = " ".join(filter(None, [staff_info.get("first_name"), staff_info.get("last_name")])).strip() or "Unknown"
+        summary = doctor.get("summary", {})
+        commission_rate = float(summary.get("commission_rate", 0))
+        patients = doctor.get("patients", [])
+        total_salary = float(summary.get("total_salary", 0))
+        grand_total += total_salary
+
+        doctor_block = []
+
+        # Doctor name bar
+        name_row = Table(
+            [[Paragraph(doctor_name, doctor_name_style), Paragraph(f"Commission {commission_rate * 100:.0f}%", muted_style)]],
+            colWidths=[content_w * 0.6, content_w * 0.4],
+        )
+        name_row.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+            ("BOX", (0, 0), (-1, -1), 0.4, border_color),
+        ]))
+        doctor_block.append(name_row)
+        doctor_block.append(Spacer(1, 4))
+
+        # Patient table
+        table_data = [[
+            Paragraph("Patient", hdr_style),
+            Paragraph("Paid", hdr_r_style),
+            Paragraph("Lab Cost", hdr_r_style),
+            Paragraph("Net", hdr_r_style),
+        ]]
+        for p in patients:
+            lab_fee = float(p.get("lab_fee", 0))
+            table_data.append([
+                Paragraph(str(p["name"]), normal_style),
+                Paragraph(fmt(p.get("total_paid", 0)), value_style),
+                Paragraph(f"-{fmt(lab_fee)}" if lab_fee > 0 else "—", value_style),
+                Paragraph(fmt(p.get("net_paid", 0)), value_style),
+            ])
+        if len(table_data) == 1:
+            table_data.append([
+                Paragraph("No patients in this period", muted_style),
+                Paragraph("—", value_style),
+                Paragraph("—", value_style),
+                Paragraph("—", value_style),
+            ])
+
+        patient_table = Table(table_data, colWidths=[content_w - 90 * mm, 30 * mm, 30 * mm, 30 * mm])
+        patient_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), header_bg),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, border_color),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+        ]))
+        doctor_block.append(patient_table)
+        doctor_block.append(Spacer(1, 6))
+
+        # Salary breakdown
+        breakdown_rows = [
+            [Paragraph("Base Salary", normal_style), Paragraph(fmt(summary.get("base_salary", 0)), value_style)],
+            [Paragraph(f"Commission ({commission_rate * 100:.0f}%)", normal_style), Paragraph(fmt(summary.get("total_commission", 0)), value_style)],
+            [Paragraph("Lab Fees Deduction", normal_style), Paragraph(fmt(summary.get("total_lab_fees", 0)), value_style)],
+        ]
+        adj = float(summary.get("adjustments", 0))
+        if adj != 0:
+            breakdown_rows.append([Paragraph("Adjustments", normal_style), Paragraph(fmt(adj), value_style)])
+
+        breakdown_table = Table(breakdown_rows, colWidths=[content_w - 50 * mm, 50 * mm])
+        breakdown_table.setStyle(TableStyle([
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, border_color),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        doctor_block.append(breakdown_table)
+        doctor_block.append(Spacer(1, 4))
+
+        # Total salary row
+        total_row = Table(
+            [[Paragraph("Total Salary", total_label), Paragraph(fmt(total_salary), total_green)]],
+            colWidths=[content_w - 50 * mm, 50 * mm],
+        )
+        total_row.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f0fdf4")),
+            ("BOX", (0, 0), (-1, -1), 0.6, green),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        doctor_block.append(total_row)
+        doctor_block.append(Spacer(1, 16))
+
+        elements.append(KeepTogether(doctor_block))
+
+    # ── Grand total ──
+    if len(doctors) > 1:
+        elements.append(HRFlowable(width="100%", thickness=0.8, color=accent, spaceBefore=4, spaceAfter=8))
+        grand_row = Table(
+            [[Paragraph("Grand Total — All Doctors", total_label), Paragraph(fmt(grand_total), ParagraphStyle("GT", parent=total_value_style, textColor=accent))]],
+            colWidths=[content_w - 60 * mm, 60 * mm],
+        )
+        grand_row.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff7ed")),
+            ("BOX", (0, 0), (-1, -1), 0.8, accent),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 9),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(grand_row)
+
+    # ── Footer ──
+    elements.append(Spacer(1, 16))
+    elements.append(Paragraph(
+        "This document is an official patient revenue report issued by KarlinDent.",
+        muted_style,
+    ))
+
+    def draw_footer(canvas, doc_ref):
+        canvas.setStrokeColor(colors.HexColor("#d1d5db"))
+        canvas.setLineWidth(0.4)
+        canvas.line(16 * mm, 14 * mm, A4[0] - 16 * mm, 14 * mm)
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(colors.HexColor("#9ca3af"))
+        canvas.drawString(16 * mm, 10 * mm, "KarlinDent")
+        canvas.drawRightString(A4[0] - 16 * mm, 10 * mm, f"Page {doc_ref.page}")
+
+    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    return pdf_data
+
+
+@staff_bp.route("/doctors/patients-report/data", methods=["GET"])
+def doctors_patients_report_data():
+    from_param = request.args.get("from")
+    to_param = request.args.get("to")
+
+    # Default to current month when not specified so all doctors share the same period
+    today = date.today()
+    if not from_param:
+        from_param = today.replace(day=1).isoformat()
+    if not to_param:
+        to_param = today.isoformat()
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT s.id
+            FROM staff s
+            JOIN staff_roles r ON r.id = s.role_id
+            WHERE r.name = 'doctor'
+            ORDER BY s.last_name, s.first_name
+            """
+        )
+        doctor_ids = [row[0] for row in cur.fetchall()]
+    finally:
+        release_connection(conn)
+
+    doctors = []
+    for staff_id in doctor_ids:
+        report = build_salary_report_data(staff_id, from_param, to_param)
+        if report and not report.get("error"):
+            doctors.append(report)
+
+    return jsonify({
+        "period": {"from": from_param, "to": to_param},
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "doctors": doctors,
+    })
+
+
+@staff_bp.route("/doctors/patients-report/pdf", methods=["GET"])
+def doctors_patients_report_pdf():
+    from_param = request.args.get("from")
+    to_param = request.args.get("to")
+
+    today = date.today()
+    if not from_param:
+        from_param = today.replace(day=1).isoformat()
+    if not to_param:
+        to_param = today.isoformat()
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT s.id
+            FROM staff s
+            JOIN staff_roles r ON r.id = s.role_id
+            WHERE r.name = 'doctor'
+            ORDER BY s.last_name, s.first_name
+            """
+        )
+        doctor_ids = [row[0] for row in cur.fetchall()]
+    finally:
+        release_connection(conn)
+
+    doctors = []
+    for staff_id in doctor_ids:
+        report = build_salary_report_data(staff_id, from_param, to_param)
+        if report and not report.get("error"):
+            doctors.append(report)
+
+    report_data = {
+        "period": {"from": from_param, "to": to_param},
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "doctors": doctors,
+    }
+
+    try:
+        pdf_data = build_doctors_patient_report_pdf(report_data)
+    except Exception as exc:
+        logger.exception("Failed to generate doctors patient report PDF: %s", exc)
+        return jsonify({"error": "pdf_generation_failed"}), 500
+
+    filename = f"patient_revenue_report_{from_param}_{to_param}.pdf"
+    return send_file(
+        io.BytesIO(pdf_data),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 @staff_bp.route("", methods=["POST"])
 def create_staff():
     data = request.get_json(silent=True) or {}

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PeriodSelector from "./PeriodSelector";
 import ThemeSwitcher from "./ThemeSwitcher";
+import SettingsPanel from "./SettingsPanel";
 import { useApi } from "../api/client";
 
 export default function Layout({ children }) {
@@ -29,8 +30,10 @@ export default function Layout({ children }) {
       const s = d.toISOString().slice(0, 10);
       return { from: s, to: s };
     } else if (p === "week") {
-      const from = new Date(d); from.setUTCDate(from.getUTCDate() - 6);
-      return { from: from.toISOString().slice(0, 10), to: d.toISOString().slice(0, 10) };
+      const dow = d.getUTCDay(); // 0=Sun
+      const from = new Date(d); from.setUTCDate(from.getUTCDate() - (dow + 6) % 7); // Monday
+      const to = new Date(from); to.setUTCDate(to.getUTCDate() + 6); // Sunday
+      return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
     } else if (p === "month") {
       const from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
       const to = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
@@ -99,10 +102,6 @@ export default function Layout({ children }) {
     location.pathname.startsWith("/outcome") ||
     location.pathname.startsWith("/staff") ||
     location.pathname.startsWith("/my-income");
-
-  const changeLanguage = (lng) => {
-    i18n.changeLanguage(lng);
-  };
 
   const handleTouchStart = (event) => {
     const touch = event.touches?.[0];
@@ -235,31 +234,8 @@ export default function Layout({ children }) {
           <div className="sidebar-controls" style={{ marginBottom: "16px", display: "flex", gap: "10px", padding: "0 12px", alignItems: "center" }}>
             <ThemeSwitcher />
           </div>
-          <div className="language-switcher" style={{ marginBottom: "20px", display: "flex", gap: "10px", padding: "0 12px" }}>
-            <button 
-              className={`btn btn-ghost btn-sm ${i18n.language === 'en' ? 'active' : ''}`} 
-              onClick={() => changeLanguage('en')}
-              style={{ padding: "4px 8px", fontSize: "12px", background: i18n.language.startsWith('en') ? "var(--bg-card)" : "transparent" }}
-              aria-label="Switch to English"
-            >
-              EN
-            </button>
-            <button 
-              className={`btn btn-ghost btn-sm ${i18n.language === 'ru' ? 'active' : ''}`} 
-              onClick={() => changeLanguage('ru')}
-              style={{ padding: "4px 8px", fontSize: "12px", background: i18n.language.startsWith('ru') ? "var(--bg-card)" : "transparent" }}
-              aria-label="Переключить на русский"
-            >
-              RU
-            </button>
-            <button 
-              className={`btn btn-ghost btn-sm ${i18n.language === 'cs' ? 'active' : ''}`} 
-              onClick={() => changeLanguage('cs')}
-              style={{ padding: "4px 8px", fontSize: "12px", background: i18n.language.startsWith('cs') ? "var(--bg-card)" : "transparent" }}
-              aria-label="Přepnout do češtiny"
-            >
-              CZ
-            </button>
+          <div style={{ marginBottom: "20px", display: "flex", gap: "10px", padding: "0 12px", alignItems: "center" }}>
+            <SettingsPanel />
           </div>
           <div className="clinic-badge">
             <div className="clinic-avatar">KD</div>
@@ -286,6 +262,7 @@ export default function Layout({ children }) {
                location.pathname.startsWith("/staff") ? t("nav.staff") :
                location.pathname.startsWith("/schedule") ? t("nav.schedule", {defaultValue: "Schedule"}) :
                location.pathname.startsWith("/my-income") ? t("nav.my_income") :
+               location.pathname.startsWith("/settings") ? "Settings" :
                t("nav.dashboard")}
             </div>
             <div className="topbar-sub">{showPeriod ? periodRangeLabel : currentMonthLabelFull}</div>

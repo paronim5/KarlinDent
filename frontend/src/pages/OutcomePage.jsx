@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
+import { formatMoney } from "../utils/currency.js";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -83,8 +84,11 @@ export default function OutcomePage() {
     if (selectedPeriod === "day") {
       fromDate = new Date(toDate);
     } else if (selectedPeriod === "week") {
+      const dow = toDate.getUTCDay();
       fromDate = new Date(toDate);
-      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+      fromDate.setUTCDate(fromDate.getUTCDate() - (dow + 6) % 7);
+      const sunday = new Date(fromDate); sunday.setUTCDate(sunday.getUTCDate() + 6);
+      toDate.setTime(sunday.getTime());
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
       toDate.setUTCDate(new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth() + 1, 0)).getUTCDate());
@@ -459,7 +463,7 @@ export default function OutcomePage() {
                     />
                 </div>
                 <div className="outcome-header-total" style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                    {t("outcome.table.amount")}: <strong>{(totalOutcome || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                    {t("outcome.table.amount")}: <strong>{formatMoney(totalOutcome)}</strong>
                 </div>
           </div>
         </div>
@@ -498,7 +502,7 @@ export default function OutcomePage() {
                   </td>
                   <td>{record.type === 'salary' ? record.staff_name : record.description}</td>
                   <td className="mono" style={{ color: "var(--red)" }}>
-                    {(record.amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    {formatMoney(record.amount)}
                   </td>
                   <td className="mono">{record.date || record.expense_date}</td>
                   <td>

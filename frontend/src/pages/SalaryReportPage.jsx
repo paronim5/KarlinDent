@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useApi } from "../api/client.js";
 import { useAuth } from "../App.jsx";
+import { formatMoney as fmt } from "../utils/currency.js";
 
 export default function SalaryReportPage() {
+  const { t } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -30,7 +33,7 @@ export default function SalaryReportPage() {
   }, []);
 
   useEffect(() => {
-    if (!staffId) { setError("Missing staff id"); return; }
+    if (!staffId) { setError(t("salary_report.missing_staff_id")); return; }
     const load = async () => {
       setLoading(true);
       setError("");
@@ -44,7 +47,7 @@ export default function SalaryReportPage() {
         const res = await api.get(url);
         setData(res);
       } catch (err) {
-        setError(err.message || "Failed to load salary report");
+        setError(err.message || t("salary_report.failed_load"));
       } finally {
         setLoading(false);
       }
@@ -131,11 +134,13 @@ export default function SalaryReportPage() {
       ? `/api/staff/${staffId}/salary-report?${query.toString()}`
       : `/api/staff/${staffId}/salary-report`;
     const headers = {};
+    const token = localStorage.getItem("auth_token");
+    if (token) headers["Authorization"] = "Bearer " + token;
     if (user?.id) headers["X-Staff-Id"] = String(user.id);
     if (user?.role) headers["X-Staff-Role"] = String(user.role);
     fetch(url, { headers })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Failed to download PDF");
+        if (!response.ok) throw new Error(t("salary_report.failed_pdf"));
         const blob = await response.blob();
         const downloadUrl = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -146,11 +151,9 @@ export default function SalaryReportPage() {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(downloadUrl);
       })
-      .catch((err) => setError(err.message || "Failed to download salary report"));
+      .catch((err) => setError(err.message || t("salary_report.failed_pdf")));
   };
 
-  const fmt = (value) =>
-    Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
 
   return (
     /* Full-screen backdrop */
@@ -183,43 +186,43 @@ export default function SalaryReportPage() {
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
           <div>
-            <div className="panel-title">Salary Report</div>
+            <div className="panel-title">{t("salary_report.title")}</div>
             {data && <div className="panel-meta">{data.period.from} → {data.period.to}</div>}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <button className="btn btn-ghost" onClick={downloadPdf} disabled={!data}>
-              Download PDF
+              {t("salary_report.download_pdf")}
             </button>
             <button className="btn btn-ghost" onClick={() => navigate(-1)}>
-              ← Back
+              {t("salary_report.back")}
             </button>
           </div>
         </div>
 
         {/* Scrollable body */}
         <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
-          {loading && <div style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>Loading report...</div>}
+          {loading && <div style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>{t("salary_report.loading")}</div>}
           {error && <div className="form-error">{error}</div>}
 
           {data && (<>
             {/* Stat strip */}
             <div className="stat-strip" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
               <div className="stat-card s-blue">
-                <div className="stat-label">Staff</div>
+                <div className="stat-label">{t("salary_report.stat_staff")}</div>
                 <div className="stat-value">{data.staff.first_name} {data.staff.last_name}</div>
               </div>
               <div className="stat-card s-orange">
-                <div className="stat-label">Role</div>
+                <div className="stat-label">{t("salary_report.stat_role")}</div>
                 <div className="stat-value">{data.role}</div>
               </div>
               {data.last_payment_date && (
                 <div className="stat-card s-green">
-                  <div className="stat-label">Last Payment</div>
+                  <div className="stat-label">{t("salary_report.stat_last_payment")}</div>
                   <div className="stat-value">{data.last_payment_date}</div>
                 </div>
               )}
               <div className="stat-card s-green">
-                <div className="stat-label">Total Salary</div>
+                <div className="stat-label">{t("salary_report.stat_total_salary")}</div>
                 <div className="stat-value">{fmt(data.summary.total_salary)}</div>
               </div>
             </div>
@@ -227,20 +230,20 @@ export default function SalaryReportPage() {
             {/* Records panel */}
             {data.role === "doctor" ? (
               <div className="panel" style={{ padding: 16 }}>
-                <div className="panel-title" style={{ marginBottom: 12 }}>Patient Payments</div>
+                <div className="panel-title" style={{ marginBottom: 12 }}>{t("salary_report.patient_payments")}</div>
                 <div className="table-wrapper">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Patient</th>
-                        <th style={{ textAlign: "right" }}>Gross</th>
-                        <th style={{ textAlign: "right" }}>Lab Fee</th>
-                        <th style={{ textAlign: "right" }}>Net</th>
+                        <th>{t("salary_report.col_patient")}</th>
+                        <th style={{ textAlign: "right" }}>{t("salary_report.col_gross")}</th>
+                        <th style={{ textAlign: "right" }}>{t("salary_report.col_lab_fee")}</th>
+                        <th style={{ textAlign: "right" }}>{t("salary_report.col_net")}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.patients.length === 0 && (
-                        <tr><td colSpan={4} className="empty-state">No unpaid patient payments for this period</td></tr>
+                        <tr><td colSpan={4} className="empty-state">{t("salary_report.no_patients")}</td></tr>
                       )}
                       {data.patients.map((row, idx) => (
                         <tr key={`${row.name}-${idx}`}>
@@ -255,10 +258,10 @@ export default function SalaryReportPage() {
                 </div>
                 <div style={{ marginTop: 12, display: "grid", gap: 6, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
                   {[
-                    ["Base Salary", fmt(data.summary.base_salary)],
-                    [`Commission (${(data.summary.commission_rate * 100).toFixed(2)}%)`, fmt(data.summary.total_commission)],
-                    ["Lab Fees Deduction", `-${fmt(data.summary.total_lab_fees || 0)}`],
-                    ["Adjustments", fmt(data.summary.adjustments)],
+                    [t("salary_report.base_salary"), fmt(data.summary.base_salary)],
+                    [t("salary_report.commission", { rate: (data.summary.commission_rate * 100).toFixed(2) }), fmt(data.summary.total_commission)],
+                    [t("salary_report.lab_fees_deduction"), `-${fmt(data.summary.total_lab_fees || 0)}`],
+                    [t("salary_report.adjustments"), fmt(data.summary.adjustments)],
                   ].map(([label, value]) => (
                     <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
                       <span>{label}</span>
@@ -269,12 +272,12 @@ export default function SalaryReportPage() {
               </div>
             ) : (
               <div className="panel" style={{ padding: 16 }}>
-                <div className="panel-title" style={{ marginBottom: 12 }}>Work Schedule</div>
+                <div className="panel-title" style={{ marginBottom: 12 }}>{t("salary_report.work_schedule")}</div>
                 <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
                   {[
-                    ["Working Days", data.summary.working_days],
-                    ["Total Hours", data.summary.total_hours],
-                    ["Hourly Rate", fmt(data.summary.base_salary)],
+                    [t("salary_report.working_days"), data.summary.working_days],
+                    [t("salary_report.total_hours"), data.summary.total_hours],
+                    [t("salary_report.hourly_rate"), fmt(data.summary.base_salary)],
                   ].map(([label, value]) => (
                     <div key={label}>
                       <div className="stat-label">{label}</div>
@@ -286,15 +289,15 @@ export default function SalaryReportPage() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Date</th>
-                        <th>Time Range</th>
-                        <th>Hours</th>
-                        <th>Note</th>
+                        <th>{t("salary_report.col_date")}</th>
+                        <th>{t("salary_report.col_time_range")}</th>
+                        <th>{t("salary_report.col_hours")}</th>
+                        <th>{t("salary_report.col_note")}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.timesheets.length === 0 && (
-                        <tr><td colSpan={4} className="empty-state">No timesheets for this period</td></tr>
+                        <tr><td colSpan={4} className="empty-state">{t("salary_report.no_timesheets")}</td></tr>
                       )}
                       {data.timesheets.map((row, idx) => (
                         <tr key={`${row.date}-${idx}`}>
@@ -312,14 +315,14 @@ export default function SalaryReportPage() {
 
             {/* Signature */}
             <div className="panel" style={{ padding: 16 }}>
-              <div className="panel-title" style={{ marginBottom: 8 }}>Signature</div>
+              <div className="panel-title" style={{ marginBottom: 8 }}>{t("salary_report.signature")}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
                 <div style={{ flex: "1 1 240px" }}>
-                  <div className="form-label">Signer Name</div>
-                  <input className="form-input" value={signerName} placeholder="Full name" readOnly />
+                  <div className="form-label">{t("salary_report.signer_name")}</div>
+                  <input className="form-input" value={signerName} placeholder={t("salary_report.full_name_placeholder")} readOnly />
                 </div>
                 <div style={{ flex: "1 1 340px" }}>
-                  <div className="form-label">Signature Field</div>
+                  <div className="form-label">{t("salary_report.signature_field")}</div>
                   <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, background: "var(--surface)" }}>
                     <canvas
                       ref={canvasRef}
@@ -337,7 +340,7 @@ export default function SalaryReportPage() {
               </div>
               <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <button type="button" className="btn btn-secondary" onClick={clearSignature}>
-                  Clear Signature
+                  {t("salary_report.clear_signature")}
                 </button>
                 <button
                   type="button"
@@ -345,11 +348,11 @@ export default function SalaryReportPage() {
                   onClick={confirmSignature}
                   disabled={!hasSignature || !signerName.trim()}
                 >
-                  Confirm Signature
+                  {t("salary_report.confirm_signature")}
                 </button>
                 {signedAt && (
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                    Signed at {new Date(signedAt).toLocaleString()}
+                    {t("salary_report.signed_at", { datetime: new Date(signedAt).toLocaleString() })}
                   </div>
                 )}
               </div>

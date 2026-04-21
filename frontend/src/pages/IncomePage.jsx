@@ -13,6 +13,7 @@ import ChartDataLabels from "chartjs-plugin-datalabels";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/client.js";
+import { formatMoney } from "../utils/currency.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, ChartDataLabels);
 
@@ -66,8 +67,11 @@ export default function IncomePage() {
     if (selectedPeriod === "day") {
       fromDate = new Date(toDate);
     } else if (selectedPeriod === "week") {
+      const dow = toDate.getUTCDay();
       fromDate = new Date(toDate);
-      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+      fromDate.setUTCDate(fromDate.getUTCDate() - (dow + 6) % 7);
+      const sunday = new Date(fromDate); sunday.setUTCDate(sunday.getUTCDate() + 6);
+      toDate.setTime(sunday.getTime());
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
       toDate.setUTCDate(new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth() + 1, 0)).getUTCDate());
@@ -414,7 +418,7 @@ export default function IncomePage() {
           <div className="stat-icon">↗</div>
           <div className="stat-label">{t("income.stats.total")}</div>
           <div className="stat-value">
-            {loading ? "—" : (paymentTotals.total || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+            {loading ? "—" : formatMoney(paymentTotals.total)}
           </div>
         </div>
         <div className="stat-card s-blue">
@@ -428,10 +432,7 @@ export default function IncomePage() {
           <div className="stat-value">
             {loading
               ? "—"
-              : (records.length > 0 ? paymentTotals.total / records.length : 0).toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "CZK"
-                })}
+              : formatMoney(records.length > 0 ? paymentTotals.total / records.length : 0)}
           </div>
         </div>
       </div>
@@ -572,10 +573,10 @@ export default function IncomePage() {
                   <td>{record.patient.last_name}</td>
                   <td>{record.doctor.last_name}</td>
                   <td className="mono" style={{ color: "var(--green)" }}>
-                    {(record.amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    {formatMoney(record.amount)}
                   </td>
                   <td className="mono" style={{ color: record.lab_cost > 0 ? "var(--red)" : "inherit" }}>
-                    {record.lab_cost > 0 ? (record.lab_cost || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" }) : "-"}
+                    {record.lab_cost > 0 ? formatMoney(record.lab_cost) : "-"}
                   </td>
                   <td>
                     <span className={`pill ${record.payment_method === 'cash' ? 'pill-green' : 'pill-blue'}`}>

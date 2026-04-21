@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/client.js";
 import { useAuth } from "../App.jsx";
+import { formatMoney as fmt } from "../utils/currency.js";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -13,6 +15,7 @@ function firstOfMonthISO() {
 }
 
 export default function DoctorsPatientReportPage() {
+  const { t } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -32,7 +35,7 @@ export default function DoctorsPatientReportPage() {
       const res = await api.get(`/staff/doctors/patients-report/data?${query}`);
       setData(res);
     } catch (err) {
-      setError(err.message || "Failed to load report");
+      setError(err.message || t("doctors_report.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -48,7 +51,7 @@ export default function DoctorsPatientReportPage() {
       if (user?.id) headers["X-Staff-Id"] = String(user.id);
       if (user?.role) headers["X-Staff-Role"] = String(user.role);
       const response = await fetch(url, { headers });
-      if (!response.ok) throw new Error("Failed to download PDF");
+      if (!response.ok) throw new Error(t("doctors_report.failed_pdf"));
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -59,7 +62,7 @@ export default function DoctorsPatientReportPage() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
     } catch (err) {
-      setError(err.message || "Failed to download PDF");
+      setError(err.message || t("doctors_report.failed_pdf"));
     } finally {
       setDownloading(false);
     }
@@ -67,8 +70,6 @@ export default function DoctorsPatientReportPage() {
 
   useEffect(() => { load(); }, []);
 
-  const fmt = (v) =>
-    Number(v || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
 
   const totalSalaryAll = data?.doctors?.reduce(
     (sum, d) => sum + (d.summary?.total_salary || 0),
@@ -81,7 +82,7 @@ export default function DoctorsPatientReportPage() {
       <div className="panel" style={{ marginBottom: 16, padding: 16 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div>
-            <div className="form-label">From</div>
+            <div className="form-label">{t("doctors_report.from")}</div>
             <input
               type="date"
               className="form-input"
@@ -90,7 +91,7 @@ export default function DoctorsPatientReportPage() {
             />
           </div>
           <div>
-            <div className="form-label">To</div>
+            <div className="form-label">{t("doctors_report.to")}</div>
             <input
               type="date"
               className="form-input"
@@ -103,17 +104,17 @@ export default function DoctorsPatientReportPage() {
             onClick={() => load(from, to)}
             disabled={loading}
           >
-            {loading ? "Loading…" : "Load Report"}
+            {loading ? t("doctors_report.loading") : t("doctors_report.load_report")}
           </button>
           <button
             className="btn btn-primary"
             onClick={downloadPdf}
             disabled={!data || downloading}
           >
-            {downloading ? "Generating PDF…" : "Download PDF"}
+            {downloading ? t("doctors_report.generating_pdf") : t("doctors_report.download_pdf")}
           </button>
           <button className="btn btn-ghost" onClick={() => navigate(-1)}>
-            ← Back
+            {t("doctors_report.back")}
           </button>
         </div>
       </div>
@@ -126,13 +127,13 @@ export default function DoctorsPatientReportPage() {
           <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
               <div>
-                <div className="panel-title" style={{ fontSize: 20 }}>Patient Revenue Report</div>
+                <div className="panel-title" style={{ fontSize: 20 }}>{t("doctors_report.title")}</div>
                 <div className="panel-meta">
-                  Period: {data.period.from} — {data.period.to}
+                  {t("doctors_report.period")}: {data.period.from} — {data.period.to}
                 </div>
               </div>
               <div className="stat-card s-green" style={{ minWidth: 160 }}>
-                <div className="stat-label">Total Salary (All Doctors)</div>
+                <div className="stat-label">{t("doctors_report.total_salary_all")}</div>
                 <div className="stat-value">{fmt(totalSalaryAll)}</div>
               </div>
             </div>
@@ -140,7 +141,7 @@ export default function DoctorsPatientReportPage() {
 
           {data.doctors.length === 0 && (
             <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--muted)" }}>
-              No doctors found
+              {t("doctors_report.no_doctors")}
             </div>
           )}
 
@@ -157,11 +158,11 @@ export default function DoctorsPatientReportPage() {
                     {doctor.staff.first_name} {doctor.staff.last_name}
                   </div>
                   <div className="panel-meta">
-                    Doctor · Commission {((doctor.summary.commission_rate || 0) * 100).toFixed(0)}%
+                    {t("doctors_report.doctor_meta", { rate: ((doctor.summary.commission_rate || 0) * 100).toFixed(0) })}
                   </div>
                 </div>
                 <div style={{ fontWeight: "bold", fontSize: 15 }}>
-                  Total Salary: <span className="mono" style={{ color: "var(--green)" }}>{fmt(doctor.summary.total_salary)}</span>
+                  {t("doctors_report.total_salary")}: <span className="mono" style={{ color: "var(--green)" }}>{fmt(doctor.summary.total_salary)}</span>
                 </div>
               </div>
 
@@ -170,17 +171,17 @@ export default function DoctorsPatientReportPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Patient</th>
-                      <th style={{ textAlign: "right" }}>Paid</th>
-                      <th style={{ textAlign: "right" }}>Lab Cost</th>
-                      <th style={{ textAlign: "right" }}>Net</th>
+                      <th>{t("doctors_report.col_patient")}</th>
+                      <th style={{ textAlign: "right" }}>{t("doctors_report.col_paid")}</th>
+                      <th style={{ textAlign: "right" }}>{t("doctors_report.col_lab_cost")}</th>
+                      <th style={{ textAlign: "right" }}>{t("doctors_report.col_net")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {doctor.patients.length === 0 && (
                       <tr>
                         <td colSpan={4} className="empty-state">
-                          No patients in this period
+                          {t("doctors_report.no_patients")}
                         </td>
                       </tr>
                     )}
@@ -210,19 +211,19 @@ export default function DoctorsPatientReportPage() {
                 gap: 4,
               }}>
                 {[
-                  ["Base Salary", fmt(doctor.summary.base_salary)],
+                  [t("doctors_report.base_salary"), fmt(doctor.summary.base_salary)],
                   [
-                    `Commission (${((doctor.summary.commission_rate || 0) * 100).toFixed(0)}%)`,
+                    t("doctors_report.commission", { rate: ((doctor.summary.commission_rate || 0) * 100).toFixed(0) }),
                     fmt(doctor.summary.total_commission),
                   ],
                   [
-                    "Lab Fees Deduction",
+                    t("doctors_report.lab_fees_deduction"),
                     doctor.summary.total_lab_fees > 0
                       ? `-${fmt(doctor.summary.total_lab_fees)}`
                       : fmt(0),
                   ],
                   ...(doctor.summary.adjustments
-                    ? [["Adjustments", fmt(doctor.summary.adjustments)]]
+                    ? [[t("doctors_report.adjustments"), fmt(doctor.summary.adjustments)]]
                     : []),
                 ].map(([label, value]) => (
                   <div
@@ -241,7 +242,7 @@ export default function DoctorsPatientReportPage() {
                   marginTop: 4,
                   paddingTop: 6,
                 }}>
-                  <span>Total Salary</span>
+                  <span>{t("doctors_report.total_salary")}</span>
                   <span className="mono" style={{ color: "var(--green)" }}>
                     {fmt(doctor.summary.total_salary)}
                   </span>
@@ -254,7 +255,7 @@ export default function DoctorsPatientReportPage() {
           {data.doctors.length > 1 && (
             <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", fontSize: 16 }}>
-                <span>Grand Total — All Doctors</span>
+                <span>{t("doctors_report.grand_total")}</span>
                 <span className="mono" style={{ color: "var(--green)" }}>{fmt(totalSalaryAll)}</span>
               </div>
             </div>

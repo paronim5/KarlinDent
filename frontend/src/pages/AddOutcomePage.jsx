@@ -45,7 +45,9 @@ export default function AddOutcomePage() {
   const [salaryNotesLoading, setSalaryNotesLoading] = useState(false);
   const [salaryNotesError, setSalaryNotesError] = useState("");
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
+  const [lockScroll, setLockScroll] = useState(false);
   const [signatureSuccess, setSignatureSuccess] = useState(null); // { documentId, staffId }
+  const [docActionLoading, setDocActionLoading] = useState(false);
   const [amountDiscrepancyModal, setAmountDiscrepancyModal] = useState(null);
   const [signatureSubmitting, setSignatureSubmitting] = useState(false);
   const [signatureError, setSignatureError] = useState("");
@@ -53,8 +55,6 @@ export default function AddOutcomePage() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
   const signatureCanvasRef = useRef(null);
-
-  const [resetCounter, setResetCounter] = useState(true);
 
   // Shift selection & revert
   const [unpaidShifts, setUnpaidShifts] = useState([]);
@@ -64,6 +64,14 @@ export default function AddOutcomePage() {
   const [revertShiftIds, setRevertShiftIds] = useState([]);
   const [reverting, setReverting] = useState(false);
   const [shiftMode, setShiftMode] = useState("select"); // "select" | "revert"
+
+  // Smart patient split (doctor partial payment)
+  const [smartSplitMode, setSmartSplitMode] = useState(false);
+  const [maxBudget, setMaxBudget] = useState("");
+  const [smartSplit, setSmartSplit] = useState(null);
+  const [smartSplitLoading, setSmartSplitLoading] = useState(false);
+  const [smartSplitError, setSmartSplitError] = useState("");
+  const smartSplitDebounceRef = useRef(null);
 
   // Note-only mode
   const [noteOnlyMode, setNoteOnlyMode] = useState(false);
@@ -177,6 +185,42 @@ export default function AddOutcomePage() {
     }
   };
 
+  const runSmartSplit = async (budgetValue) => {
+    if (!selectedStaffId || !Number.isFinite(budgetValue) || budgetValue <= 0) return;
+    setSmartSplitLoading(true);
+    setSmartSplitError("");
+    try {
+      const range = resolveReportRange();
+      const params = new URLSearchParams({ amount: budgetValue.toFixed(2) });
+      if (range.from) params.set("from", range.from);
+      if (range.to) params.set("to", range.to);
+      const result = await api.get(`/staff/${selectedStaffId}/salary-smart-split?${params}`);
+      setSmartSplit(result);
+      // Auto-set the payment amount to the exact covered total
+      setSalaryForm(p => ({ ...p, amount: result.covered_total.toFixed(2) }));
+      setHasManualSalaryAmount(false);
+    } catch (err) {
+      setSmartSplitError(err.message || "Failed to calculate smart split.");
+      setSmartSplit(null);
+    } finally {
+      setSmartSplitLoading(false);
+    }
+  };
+
+  // Debounced auto-recalculate when max budget changes
+  useEffect(() => {
+    if (!smartSplitMode) return;
+    const budgetValue = toNumber(maxBudget, NaN);
+    if (!Number.isFinite(budgetValue) || budgetValue <= 0) {
+      setSmartSplit(null);
+      setSmartSplitError("");
+      return;
+    }
+    if (smartSplitDebounceRef.current) clearTimeout(smartSplitDebounceRef.current);
+    smartSplitDebounceRef.current = setTimeout(() => { runSmartSplit(budgetValue); }, 600);
+    return () => { if (smartSplitDebounceRef.current) clearTimeout(smartSplitDebounceRef.current); };
+  }, [maxBudget, smartSplitMode, selectedStaffId, salaryRange.from, salaryRange.to]);
+
   const handleRevertShifts = async () => {
     if (revertShiftIds.length === 0) return;
     setReverting(true);
@@ -229,9 +273,17 @@ export default function AddOutcomePage() {
       setPaidShifts([]);
       setSelectedShiftIds([]);
       setRevertShiftIds([]);
+      setSmartSplitMode(false);
+      setMaxBudget("");
+      setSmartSplit(null);
+      setSmartSplitError("");
       setError("");
       return;
     }
+    setSmartSplitMode(false);
+    setMaxBudget("");
+    setSmartSplit(null);
+    setSmartSplitError("");
     if (prefillStaffId && String(prefillStaffId) !== String(selectedStaffId)) {
       prefillAmountRef.current = null;
       setPrefillAmount(null);
@@ -407,7 +459,8 @@ export default function AddOutcomePage() {
       setError("Select a payment date.");
       return;
     }
-    if (Number.isFinite(suggestedAmount) && suggestedAmount > 0) {
+    // Smart split intentionally sets a partial amount — skip the discrepancy warning
+    if (!smartSplitMode && Number.isFinite(suggestedAmount) && suggestedAmount > 0) {
       const diff = Math.abs(amountValue - suggestedAmount);
       const diffRatio = diff / suggestedAmount;
       if (diffRatio >= 0.05) {
@@ -419,6 +472,12 @@ export default function AddOutcomePage() {
         });
         return;
       }
+    }
+
+    // If smart split is on but allocation hasn't been calculated yet, block submit
+    if (smartSplitMode && !smartSplit) {
+      setError("Enter a max budget above to calculate the patient allocation first.");
+      return;
     }
 
     handleAmountDiscrepancyConfirm();
@@ -438,6 +497,55 @@ export default function AddOutcomePage() {
     setAmountDiscrepancyModal(null);
   };
 
+  const getAuthHeaders = () => {
+    const headers = {};
+    const token = localStorage.getItem("auth_token");
+    if (token) headers["Authorization"] = "Bearer " + token;
+    const rawUser = localStorage.getItem("auth_user");
+    if (rawUser) {
+      try {
+        const u = JSON.parse(rawUser);
+        if (u?.id) headers["X-Staff-Id"] = String(u.id);
+        if (u?.role) headers["X-Staff-Role"] = String(u.role);
+      } catch { /* ignore */ }
+    }
+    return headers;
+  };
+
+  const viewDocument = async (staffId, documentId) => {
+    if (docActionLoading) return;
+    setDocActionLoading(true);
+    try {
+      const response = await fetch(`/api/staff/${staffId}/documents/${documentId}/view`, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error("Failed to open document");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch { /* ignore */ } finally {
+      setDocActionLoading(false);
+    }
+  };
+
+  const downloadDocument = async (staffId, documentId) => {
+    if (docActionLoading) return;
+    setDocActionLoading(true);
+    try {
+      const response = await fetch(`/api/staff/${staffId}/documents/${documentId}/download`, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error("Failed to download document");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `salary-report-${staffId}-${documentId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch { /* ignore */ } finally {
+      setDocActionLoading(false);
+    }
+  };
+
   const handleRecordSalaryWithSignature = async () => {
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
@@ -450,7 +558,7 @@ export default function AddOutcomePage() {
       const range = resolveReportRange();
       
       const amountValue = toNumber(salaryForm.amount, NaN);
-      const amountChangeReason = hasManualSalaryAmount ? "manual_ui_adjustment" : "calculated_value";
+      const amountChangeReason = smartSplitMode ? "smart_split_partial" : hasManualSalaryAmount ? "manual_ui_adjustment" : "calculated_value";
 
       const payload = {
         staff_id: Number(selectedStaffId),
@@ -458,7 +566,7 @@ export default function AddOutcomePage() {
         payment_date: salaryForm.paymentDate,
         note: salaryForm.note,
         amount_change_reason: amountChangeReason,
-        reset_counter: resetCounter,
+        reset_counter: true,
         signature: {
           signer_name: signerName.trim(),
           signed_at: signedAt,
@@ -468,6 +576,22 @@ export default function AddOutcomePage() {
       if (range.from) payload.from = range.from;
       if (range.to) payload.to = range.to;
       if (selectedShiftIds.length > 0) payload.shift_ids = selectedShiftIds;
+      if (smartSplit) {
+        // Always send allocation when smart split is computed (even if no patients fit budget)
+        payload.smart_split_allocation = {
+          included_patients: smartSplit.included_patients || [],
+          partial_patient: smartSplit.partial_patient || null,
+          excluded_patients: smartSplit.excluded_patients || [],
+          covered_total: smartSplit.covered_total,
+          covered_commission: smartSplit.covered_commission,
+          uncovered_commission: smartSplit.uncovered_commission,
+          commission_rate: smartSplit.commission_rate,
+        };
+        // Only restrict income records to fully-paid patients (partial patient carries forward)
+        if (smartSplit.included_patient_ids && smartSplit.included_patient_ids.length > 0) {
+          payload.patient_ids = smartSplit.included_patient_ids;
+        }
+      }
 
       const response = await api.post("/staff/salaries", payload);
 
@@ -481,7 +605,15 @@ export default function AddOutcomePage() {
         navigate("/outcome");
       }
     } catch (err) {
-      setSignatureError(err.message || "Failed to record salary and sign report");
+      const errCode = err.responseData?.error || err.code || "";
+      if (errCode === "signature_mismatch") {
+        setSignatureError(
+          "Signature rejected: it does not match the reference signature on file. " +
+          "Please draw your usual signature. The salary has NOT been processed."
+        );
+      } else {
+        setSignatureError(err.message || "Failed to record salary and sign report");
+      }
     } finally {
       setSignatureSubmitting(false);
     }
@@ -546,13 +678,14 @@ export default function AddOutcomePage() {
 
   useEffect(() => {
     if (!signatureModalOpen) return;
+    window.scrollTo({ top: 0, behavior: 'instant' });
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const ratio = window.devicePixelRatio || 1;
     const width = canvas.clientWidth || 320;
-    const height = canvas.clientHeight || 140;
+    const height = canvas.clientHeight || 200;
     canvas.width = width * ratio;
     canvas.height = height * ratio;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -592,6 +725,7 @@ export default function AddOutcomePage() {
     window.addEventListener("keydown", onKeyDown);
 
     const preventDefault = (e) => {
+      if (e.target && e.target.closest && e.target.closest('.modal-overlay')) return;
       if (e.cancelable) e.preventDefault();
     };
     document.addEventListener('touchmove', preventDefault, { passive: false });
@@ -616,7 +750,7 @@ export default function AddOutcomePage() {
   }, [amountDiscrepancyModal]);
 
   useEffect(() => {
-    if (!signatureModalOpen) return;
+    if (!signatureModalOpen || !lockScroll) return;
 
     const scrollY = window.pageYOffset;
     const originalStyle = {
@@ -628,11 +762,8 @@ export default function AddOutcomePage() {
       overscrollBehavior: document.body.style.overscrollBehavior
     };
 
-    // Apply strict scroll locking for mobile/iOS
     document.documentElement.classList.add("auth-overlay-lock");
     document.body.classList.add("auth-overlay-lock");
-    
-    // Maintain scroll position and prevent "rubber-banding" on iOS
     document.body.style.position = 'fixed';
     document.body.style.top = `-${scrollY}px`;
     document.body.style.width = '100%';
@@ -641,36 +772,26 @@ export default function AddOutcomePage() {
     document.body.style.overscrollBehavior = 'none';
 
     const preventDefault = (e) => {
-      // Allow multi-touch if we want to allow zoom, but user asked to suppress it
-      // Block all touchmove events from propagating to the background
-      if (e.cancelable) {
-        e.preventDefault();
-      }
+      if (e.target && e.target.closest && e.target.closest('.modal-overlay')) return;
+      if (e.cancelable) e.preventDefault();
     };
-
-    // Non-passive listener is required to call preventDefault()
     document.addEventListener('touchmove', preventDefault, { passive: false });
     document.addEventListener('wheel', preventDefault, { passive: false });
 
     return () => {
       document.documentElement.classList.remove("auth-overlay-lock");
       document.body.classList.remove("auth-overlay-lock");
-
-      // Restore original styles
       document.body.style.overflow = originalStyle.overflow;
       document.body.style.position = originalStyle.position;
       document.body.style.top = originalStyle.top;
       document.body.style.width = originalStyle.width;
       document.body.style.height = originalStyle.height;
       document.body.style.overscrollBehavior = originalStyle.overscrollBehavior;
-
-      // Restore scroll position
       window.scrollTo(0, scrollY);
-
       document.removeEventListener('touchmove', preventDefault);
       document.removeEventListener('wheel', preventDefault);
     };
-  }, [signatureModalOpen]);
+  }, [signatureModalOpen, lockScroll]);
 
   const selectedStaff = useMemo(
     () => staffList.find((staffMember) => String(staffMember.id) === String(selectedStaffId)),
@@ -1043,7 +1164,12 @@ export default function AddOutcomePage() {
 
                 {/* Amount */}
                 <div className="form-field">
-                  <div className="form-label">{t("outcome.form.amount")}</div>
+                  <div className="form-label">
+                    {t("outcome.form.amount")}
+                    {smartSplitMode && smartSplit && (
+                      <span style={{ marginLeft: 8, fontSize: 11, color: "var(--muted)", fontWeight: 400 }}>auto-calculated</span>
+                    )}
+                  </div>
                   <input
                     className="form-input"
                     type="number"
@@ -1051,12 +1177,15 @@ export default function AddOutcomePage() {
                     min="0.01"
                     required
                     value={salaryForm.amount}
+                    readOnly={smartSplitMode}
+                    style={smartSplitMode ? { opacity: 0.7, cursor: "not-allowed" } : undefined}
                     onChange={(e) => {
+                      if (smartSplitMode) return;
                       setHasManualSalaryAmount(true);
                       setSalaryForm(p => ({ ...p, amount: e.target.value }));
                     }}
                   />
-                  {Number.isFinite(suggestedAmount) && hasManualSalaryAmount && (
+                  {Number.isFinite(suggestedAmount) && hasManualSalaryAmount && !smartSplitMode && (
                     <div className="form-hint">Calculated: {formatNumber(suggestedAmount, { minimumFractionDigits: 2 })}</div>
                   )}
                 </div>
@@ -1072,26 +1201,148 @@ export default function AddOutcomePage() {
                   />
                 </div>
 
-                {/* Reset counter + debt */}
-                <div className="form-field form-field-full">
-                  <label className="check-row">
-                    <input type="checkbox" checked={resetCounter} onChange={(e) => setResetCounter(e.target.checked)} />
-                    <span>{t("outcome.form.reset_counter", "Mark shifts as paid (reset counter)")}</span>
-                  </label>
-                  {!resetCounter && (() => {
-                    const calculated = toNumber(suggestedAmount, NaN);
-                    const paying = toNumber(salaryForm.amount, NaN);
-                    const debt = Number.isFinite(calculated) && Number.isFinite(paying) ? calculated - paying : null;
-                    if (debt === null) return null;
-                    const isPositive = debt > 0;
-                    const isNegative = debt < 0;
-                    return (
-                      <div className="salary-debt-hint" style={{ color: isPositive ? 'var(--green)' : isNegative ? 'var(--red)' : 'var(--text-secondary)' }}>
-                        {isPositive ? `+${debt.toFixed(2)} — owed to staff, added to next salary` : isNegative ? `${debt.toFixed(2)} — overpaid, deducted from next salary` : "exact — no debt recorded"}
-                      </div>
-                    );
-                  })()}
-                </div>
+                {/* Smart Patient Split — doctor only */}
+                {(() => {
+                  const staffMember = staffList.find(s => String(s.id) === String(selectedStaffId));
+                  if (!staffMember || staffMember.role !== "doctor") return null;
+                  return (
+                    <div className="form-field form-field-full">
+                      {/* Toggle */}
+                      <label className="check-row" style={{ marginBottom: smartSplitMode ? 12 : 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={smartSplitMode}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setSmartSplitMode(on);
+                            if (!on) {
+                              setMaxBudget("");
+                              setSmartSplit(null);
+                              setSmartSplitError("");
+                              // Restore auto-calculated amount
+                              if (Number.isFinite(suggestedAmount)) {
+                                setSalaryForm(p => ({ ...p, amount: suggestedAmount.toFixed(2) }));
+                                setHasManualSalaryAmount(false);
+                              }
+                            }
+                          }}
+                        />
+                        <span>Smart split — pay partial amount by patients</span>
+                      </label>
+
+                      {smartSplitMode && (
+                        <>
+                          {/* Max budget input */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                            <div style={{ flex: "0 0 auto" }}>
+                              <div className="form-label" style={{ marginBottom: 4 }}>Max budget (CZK)</div>
+                              <input
+                                className="form-input"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                placeholder="Enter max you can pay…"
+                                value={maxBudget}
+                                style={{ width: 200 }}
+                                onChange={(e) => setMaxBudget(e.target.value)}
+                                autoFocus
+                              />
+                            </div>
+                            {smartSplitLoading && (
+                              <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 20 }}>Calculating…</div>
+                            )}
+                          </div>
+
+                          {smartSplitError && <div className="form-error" style={{ marginBottom: 8 }}>{smartSplitError}</div>}
+
+                          {/* Allocation result */}
+                          {smartSplit && (
+                            <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", fontSize: 13 }}>
+                              {/* Header */}
+                              <div style={{ padding: "8px 12px", background: "var(--surface)", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontWeight: 600 }}>Patient allocation</span>
+                                <span style={{ color: "var(--muted)", fontSize: 12 }}>
+                                  budget: {formatNumber(toNumber(maxBudget, 0), { minimumFractionDigits: 2 })} → paying: <strong style={{ color: "var(--green)" }}>{formatNumber(smartSplit.covered_total, { minimumFractionDigits: 2 })}</strong>
+                                </span>
+                              </div>
+
+                              {smartSplit.included_patients.length === 0 && !smartSplit.partial_patient ? (
+                                <div style={{ padding: "10px 12px", color: "var(--red)", fontSize: 13 }}>
+                                  Budget too low to cover any patient commission. Only base salary will be paid.
+                                </div>
+                              ) : (
+                                <>
+                                  {/* Paid now */}
+                                  <div style={{ padding: "8px 12px", borderBottom: (smartSplit.partial_patient || smartSplit.excluded_patients.length > 0) ? "1px solid var(--border)" : undefined }}>
+                                    <div style={{ color: "var(--green)", fontWeight: 600, marginBottom: 4, fontSize: 12 }}>
+                                      Paid in full — {smartSplit.included_patients.length} patient{smartSplit.included_patients.length !== 1 ? "s" : ""}
+                                    </div>
+                                    {smartSplit.included_patients.map((p, i) => (
+                                      <div key={`inc-${i}`} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+                                        <span>{p.name}</span>
+                                        <span className="mono" style={{ color: "var(--green)" }}>
+                                          {formatNumber(p.salary_contribution, { minimumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
+                                    ))}
+
+                                    {/* Partial patient */}
+                                    {smartSplit.partial_patient && (
+                                      <div style={{ marginTop: 4, borderTop: "1px dashed var(--border)", paddingTop: 4 }}>
+                                        <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: 2, fontSize: 12 }}>
+                                          Partial — {smartSplit.partial_patient.pct_paid}% paid now
+                                        </div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+                                          <span style={{ color: "var(--accent)" }}>{smartSplit.partial_patient.name}</span>
+                                          <span className="mono" style={{ color: "var(--accent)" }}>
+                                            {formatNumber(smartSplit.partial_patient.commission_paid, { minimumFractionDigits: 2 })}
+                                            <span style={{ color: "var(--muted)", fontSize: 11 }}> / {formatNumber(smartSplit.partial_patient.salary_contribution, { minimumFractionDigits: 2 })}</span>
+                                          </span>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {(smartSplit.base_salary > 0 || smartSplit.adjustments !== 0) && (
+                                      <div style={{ borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 4, display: "flex", justifyContent: "space-between", color: "var(--muted)", fontSize: 12 }}>
+                                        <span>+ base salary &amp; adjustments</span>
+                                        <span className="mono">{formatNumber(smartSplit.base_salary + smartSplit.adjustments, { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                    )}
+                                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 4, paddingTop: 4, display: "flex", justifyContent: "space-between", fontWeight: 600 }}>
+                                      <span>Payment amount</span>
+                                      <span className="mono" style={{ color: "var(--green)" }}>{formatNumber(smartSplit.covered_total, { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Deferred */}
+                                  {(smartSplit.partial_patient || smartSplit.excluded_patients.length > 0) && (
+                                    <div style={{ padding: "8px 12px", background: "var(--surface)" }}>
+                                      <div style={{ color: "var(--muted)", fontWeight: 600, marginBottom: 4, fontSize: 12 }}>
+                                        Deferred next cycle · {formatNumber(smartSplit.uncovered_commission, { minimumFractionDigits: 2 })}
+                                      </div>
+                                      {smartSplit.partial_patient && (
+                                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: "var(--muted)" }}>
+                                          <span>{smartSplit.partial_patient.name} <span style={{ fontSize: 11 }}>({smartSplit.partial_patient.pct_deferred}% deferred)</span></span>
+                                          <span className="mono">{formatNumber(smartSplit.partial_patient.commission_deferred, { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                      )}
+                                      {smartSplit.excluded_patients.map((p, i) => (
+                                        <div key={`exc-${i}`} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: "var(--muted)" }}>
+                                          <span>{p.name}</span>
+                                          <span className="mono">{formatNumber(p.salary_contribution, { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* ── SHIFT SELECTION / REVERT (non-doctor only) ── */}
@@ -1263,18 +1514,39 @@ export default function AddOutcomePage() {
       )}
 
       {signatureModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal" role="dialog" aria-modal="true">
+        <div className="modal-overlay" style={{ alignItems: 'flex-start', paddingTop: '5vh', overflowY: 'auto' }}>
+          <div className="modal" role="dialog" aria-modal="true" style={{ maxHeight: 'none' }}>
             <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px' }}>
               <div>{t("outcome.signature.title")}</div>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setSignatureModalOpen(false)}
-                disabled={signatureSubmitting}
-              >
-                {t("outcome.signature.close")}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--subtext)', cursor: 'pointer', userSelect: 'none' }}>
+                  <span>Lock scroll</span>
+                  <button
+                    type="button"
+                    onClick={() => setLockScroll(v => !v)}
+                    style={{
+                      width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                      background: lockScroll ? 'var(--accent)' : 'var(--border)',
+                      position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                    }}
+                    aria-label="Toggle scroll lock"
+                  >
+                    <span style={{
+                      display: 'block', width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                      position: 'absolute', top: 3, left: lockScroll ? 19 : 3, transition: 'left 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    }} />
+                  </button>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setSignatureModalOpen(false)}
+                  disabled={signatureSubmitting}
+                >
+                  {t("outcome.signature.close")}
+                </button>
+              </div>
             </div>
             {signatureSuccess ? (
               <>
@@ -1289,22 +1561,22 @@ export default function AddOutcomePage() {
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <a
-                      href={`/api/staff/${signatureSuccess.staffId}/documents/${signatureSuccess.documentId}/view`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
                       className="btn btn-secondary"
-                      style={{ textAlign: 'center', textDecoration: 'none' }}
+                      disabled={docActionLoading}
+                      onClick={() => viewDocument(signatureSuccess.staffId, signatureSuccess.documentId)}
                     >
                       {t("outcome.signature.view_report", "View PDF")}
-                    </a>
-                    <a
-                      href={`/api/staff/${signatureSuccess.staffId}/documents/${signatureSuccess.documentId}/download`}
+                    </button>
+                    <button
+                      type="button"
                       className="btn btn-primary"
-                      style={{ textAlign: 'center', textDecoration: 'none' }}
+                      disabled={docActionLoading}
+                      onClick={() => downloadDocument(signatureSuccess.staffId, signatureSuccess.documentId)}
                     >
                       {t("outcome.signature.download_report", "Download PDF")}
-                    </a>
+                    </button>
                   </div>
                 </div>
                 <div className="modal-actions" style={{ padding: '12px 20px' }}>
@@ -1315,7 +1587,7 @@ export default function AddOutcomePage() {
               </>
             ) : (
               <>
-                <div className="modal-body" style={{ color: 'var(--text)', padding: '16px 20px', overflowY: 'hidden' }}>
+                <div className="modal-body" style={{ color: 'var(--text)', padding: '16px 20px', overflowY: 'visible' }}>
                   <div style={{ display: 'grid', gap: '12px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                       <div>
@@ -1343,7 +1615,7 @@ export default function AddOutcomePage() {
                       <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '6px', background: 'var(--surface)' }}>
                         <canvas
                           ref={signatureCanvasRef}
-                          style={{ width: '100%', height: '110px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
+                          style={{ width: '100%', height: '200px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
                           onMouseDown={handleSignatureStart}
                           onMouseMove={handleSignatureMove}
                           onMouseUp={handleSignatureEnd}

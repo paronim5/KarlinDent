@@ -4,6 +4,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { Line } from "react-chartjs-2";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
+import { formatMoney as formatCurrency } from "../utils/currency.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -91,8 +92,10 @@ export default function DoctorPage() {
     if (selectedPeriod === "day") {
       fromDate = new Date(toDate);
     } else if (selectedPeriod === "week") {
+      const dow = toDate.getUTCDay();
       fromDate = new Date(toDate);
-      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+      fromDate.setUTCDate(fromDate.getUTCDate() - (dow + 6) % 7);
+      toDate = new Date(fromDate); toDate.setUTCDate(toDate.getUTCDate() + 6);
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
       // End of month
@@ -106,8 +109,6 @@ export default function DoctorPage() {
     return { from: format(fromDate), to: format(toDate) };
   };
 
-  const formatCurrency = (value) =>
-    Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
   const weekdayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const monthLabels = [
     "January",

@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
+import { formatMoney as fmtCzk } from "../utils/currency.js";
 
 export default function StaffRolePage() {
   const { t } = useTranslation();
   const { id } = useParams();
   const navigate = useNavigate();
   const api = useApi();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") || "overview";
+  const setTab = (tab) => setSearchParams(tab === "overview" ? {} : { tab });
   const today = new Date().toISOString().slice(0, 10);
   
   // Calculate next month end or similar logic for default 'to' if needed
@@ -50,8 +54,10 @@ export default function StaffRolePage() {
     if (selectedPeriod === "day") {
       fromDate = new Date(toDate);
     } else if (selectedPeriod === "week") {
+      const dow = toDate.getUTCDay();
       fromDate = new Date(toDate);
-      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+      fromDate.setUTCDate(fromDate.getUTCDate() - (dow + 6) % 7);
+      toDate = new Date(fromDate); toDate.setUTCDate(toDate.getUTCDate() + 6);
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
       toDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth() + 1, 0));
@@ -131,6 +137,8 @@ export default function StaffRolePage() {
 
   const getAuthHeaders = () => {
     const headers = {};
+    const token = localStorage.getItem("auth_token");
+    if (token) headers["Authorization"] = "Bearer " + token;
     const rawUser = localStorage.getItem("auth_user");
     if (!rawUser) return headers;
     try {
@@ -254,6 +262,32 @@ export default function StaffRolePage() {
   }, [totalWages, allHoursInRange]);
 
   const baseRate = staff && staff.base_salary ? Number(staff.base_salary) : 0;
+
+  // Stats for ALL accepted/paid shifts in the period (including already-paid ones)
+  const { allAcceptedHours, allAcceptedWeekdayHours, allAcceptedWeekendHours, allWorkingDays, allTotalEarned } = useMemo(() => {
+    const accepted = timesheets.filter(t => t.status === "accepted" || t.status === "paid");
+    let totalH = 0, wdH = 0, weH = 0;
+    const days = new Set();
+    const base = staff?.base_salary ? Number(staff.base_salary) : 0;
+    const wkend = staff?.weekend_salary != null ? Number(staff.weekend_salary) : 200;
+    accepted.forEach(t => {
+      const h = Number(t.salary_hours ?? t.hours ?? 0);
+      totalH += h;
+      const d = new Date(t.start || t.work_date);
+      const day = d.getDay();
+      if (day === 0 || day === 6) weH += h;
+      else wdH += h;
+      days.add(t.work_date);
+    });
+    return {
+      allAcceptedHours: totalH,
+      allAcceptedWeekdayHours: wdH,
+      allAcceptedWeekendHours: weH,
+      allWorkingDays: days.size,
+      allTotalEarned: Number((wdH * base + weH * wkend).toFixed(2)),
+    };
+  }, [timesheets, staff]);
+
 
   const handleRecordSalary = async () => {
     setPayingSalary(true);
@@ -447,293 +481,343 @@ export default function StaffRolePage() {
     window.URL.revokeObjectURL(url);
   };
 
+  const pendingCount = timesheets.filter(t => t.status === "pending").length;
+
   return (
     <>
       {error && <div className="form-error">{t("staff_role.system_error", { error })}</div>}
+
+      {/* Toolbar — date range always visible */}
       <div className="staff-role-toolbar">
         <div className="doc-filter-controls" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
           <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPeriod("custom"); }} className="form-input doc-filter-input" aria-label={t("income.date_range.from")} />
           <span className="doc-filter-separator">-</span>
           <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPeriod("custom"); }} className="form-input doc-filter-input" aria-label={t("income.date_range.to")} />
           <button type="button" className="btn btn-ghost" onClick={handlePeriodApply}>{t("staff_role.search")}</button>
-          <button type="button" className="btn btn-primary" onClick={exportTimesheets}>{t("common.export_csv")}</button>
+          {activeTab === "shifts" && (
+            <button type="button" className="btn btn-primary" onClick={exportTimesheets}>{t("common.export_csv")}</button>
+          )}
         </div>
       </div>
-      
-      <div className="two-col staff-role-layout">
-        <div className="quick-form staff-role-sidepanel staff-role-controls-panel">
-          <div className="panel" style={{ marginBottom: "16px" }}>
-            <div className="panel-header">
-              <div>
-                <div className="panel-title">{t("staff_role.salary_summary")}</div>
-                <div className="panel-meta">{from} → {to}</div>
-              </div>
+
+      {/* Tab navigation */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)", paddingBottom: 0 }}>
+        {[
+          { key: "overview", label: "Overview" },
+          { key: "shifts",   label: `Shifts${pendingCount > 0 ? ` (${pendingCount})` : ""}` },
+          { key: "documents", label: "Salary Reports" },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            style={{
+              padding: "8px 18px",
+              fontSize: 13,
+              fontWeight: activeTab === key ? 600 : 400,
+              border: "none",
+              borderBottom: activeTab === key ? "2px solid var(--accent)" : "2px solid transparent",
+              background: "none",
+              color: activeTab === key ? "var(--accent)" : "var(--subtext)",
+              cursor: "pointer",
+              marginBottom: -1,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── OVERVIEW TAB ── */}
+      {activeTab === "overview" && (
+        <>
+          {/* Stat strip */}
+          <div className="stat-strip" style={{ marginBottom: 20 }}>
+            <div className="stat-card s-blue">
+              <div className="stat-icon">⏱</div>
+              <div className="stat-label">Total Hours</div>
+              <div className="stat-value">{allAcceptedHours.toFixed(1)}h</div>
             </div>
-            <div style={{ display: "grid", gap: "8px", padding: "12px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Weekday Hours (unpaid)</span>
-                <span className="mono">{weekdayHours.toFixed(2)}h</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Weekend Hours (unpaid)</span>
-                <span className="mono">{weekendHours.toFixed(2)}h</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>{t("outcome.salary_panel.base_rate")}</span>
-                <span className="mono">{baseRate.toLocaleString(undefined, { style: "currency", currency: "CZK" })}/h</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Weekend Rate</span>
-                <span className="mono">{weekendRate.toLocaleString(undefined, { style: "currency", currency: "CZK" })}/h</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "600" }}>
-                <span>{t("outcome.salary_panel.calculated_salary")}</span>
-                <span className="mono">{totalWages.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: "8px", marginTop: "4px" }}>
-                <span>Total Hours (all shifts)</span>
-                <span className="mono">{allHoursInRange.toFixed(2)}h</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Avg Salary / Hour</span>
-                <span className="mono">{avgPerHour.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                <button type="button" className="btn btn-primary" onClick={handleRecordSalary} disabled={payingSalary}>
-                  {payingSalary ? t("staff_role.recording") : t("staff_role.record_salary")}
-                </button>
-              </div>
+            <div className="stat-card s-orange">
+              <div className="stat-icon">☀</div>
+              <div className="stat-label">Weekday Hours</div>
+              <div className="stat-value">{allAcceptedWeekdayHours.toFixed(1)}h</div>
             </div>
-          </div>
-          <div className="panel" style={{ marginBottom: "16px" }}>
-            <div className="panel-header" style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div className="panel-title">{t("staff_role.salary_documents")}</div>
-                <div className="panel-meta">{t("staff_role.signed_reports")}</div>
-              </div>
-              <div className="doc-filter-controls">
-                <input
-                  type="date"
-                  value={documentFilter.from}
-                  onChange={(e) => setDocumentFilter((prev) => ({ ...prev, from: e.target.value }))}
-                  className="form-input doc-filter-input"
-                />
-                <span className="doc-filter-separator">-</span>
-                <input
-                  type="date"
-                  value={documentFilter.to}
-                  onChange={(e) => setDocumentFilter((prev) => ({ ...prev, to: e.target.value }))}
-                  className="form-input doc-filter-input"
-                />
-                <button className="btn btn-ghost" onClick={() => loadDocuments(documentFilter.from, documentFilter.to)}>
-                  {t("staff_role.search")}
-                </button>
-              </div>
+            <div className="stat-card s-green">
+              <div className="stat-icon">◈</div>
+              <div className="stat-label">Weekend Hours</div>
+              <div className="stat-value">{allAcceptedWeekendHours.toFixed(1)}h</div>
             </div>
-            <div className="table-wrapper">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{t("staff_role.headers_docs.period")}</th>
-                    <th>{t("staff_role.headers_docs.signed_at")}</th>
-                    <th>{t("staff_role.headers_docs.signer")}</th>
-                    <th>{t("staff_role.headers_docs.file")}</th>
-                    <th>{t("staff_role.headers_docs.action")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {documentsLoading && (
-                    [...Array(3)].map((_, idx) => (
-                      <tr key={`doc-${idx}`}>
-                        <td><div className="skeleton-line" /></td>
-                        <td><div className="skeleton-line" /></td>
-                        <td><div className="skeleton-line" /></td>
-                        <td><div className="skeleton-line" /></td>
-                        <td><div className="skeleton-line" /></td>
-                      </tr>
-                    ))
-                  )}
-                  {!documentsLoading && documentsError && (
-                    <tr>
-                      <td colSpan={5} className="empty-state">{documentsError}</td>
-                    </tr>
-                  )}
-                  {!documentsLoading && !documentsError && documents.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="empty-state">{t("staff_role.no_documents")}</td>
-                    </tr>
-                  )}
-                  {!documentsLoading && !documentsError && documents.map((doc) => (
-                    <tr key={doc.id}>
-                      <td className="mono">{doc.period_from || "—"} → {doc.period_to || "—"}</td>
-                      <td className="mono">{doc.signed_at ? new Date(doc.signed_at).toLocaleString() : "—"}</td>
-                      <td>{doc.signer_name || "—"}</td>
-                      <td className="mono doc-filename">{doc.file_name || t("staff_role.file_default")}</td>
-                      <td>
-                        <div className="doc-actions">
-                          <button className="pay-btn" onClick={() => previewDocument(doc.id)}>
-                            {t("staff_role.view")}
-                          </button>
-                          <button className="pay-btn" onClick={() => downloadDocument(doc.id, doc.file_name)}>
-                            {t("staff_role.download")}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="stat-card s-blue">
+              <div className="stat-icon">◉</div>
+              <div className="stat-label">Working Days</div>
+              <div className="stat-value">{allWorkingDays}</div>
+            </div>
+            <div className="stat-card s-green">
+              <div className="stat-icon">↗</div>
+              <div className="stat-label">Salary Earned</div>
+              <div className="stat-value">{fmtCzk(allTotalEarned)}</div>
+            </div>
+            <div className="stat-card s-orange">
+              <div className="stat-icon">⌀</div>
+              <div className="stat-label">Avg / Day</div>
+              <div className="stat-value">{allWorkingDays > 0 ? (allAcceptedHours / allWorkingDays).toFixed(1) + "h" : "—"}</div>
             </div>
           </div>
-          <div ref={formRef} className="panel-title" style={{ marginBottom: '16px' }}>{editingId ? t("staff_role.edit_shift") : t("staff_role.add_shift")}</div>
-          <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <div className="form-label">{t("staff_role.shift_date")}</div>
-              <input className="form-input" type="date" value={form.workDate} onChange={(e) => setForm(p => ({...p, workDate: e.target.value}))} />
-            </div>
-            <div className="form-grid">
-              <div>
-                <div className="form-label">{t("staff_role.shift_start")}</div>
-                <input className="form-input" type="time" value={form.startTime} onChange={(e) => setForm(p => ({...p, startTime: e.target.value}))} />
+
+          {/* Salary summary + nav cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {/* Salary summary */}
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <div className="panel-title">{t("staff_role.salary_summary")}</div>
+                  <div className="panel-meta">{from} → {to}</div>
+                </div>
               </div>
-              <div>
-                <div className="form-label">{t("staff_role.shift_end")}</div>
-                <input className="form-input" type="time" value={form.endTime} onChange={(e) => setForm(p => ({...p, endTime: e.target.value}))} />
+              <div style={{ display: "grid", gap: "8px", padding: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--subtext)", fontSize: 13 }}>Weekday hours (unpaid)</span>
+                  <span className="mono">{weekdayHours.toFixed(2)}h</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--subtext)", fontSize: 13 }}>Weekend hours (unpaid)</span>
+                  <span className="mono">{weekendHours.toFixed(2)}h</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--subtext)", fontSize: 13 }}>{t("outcome.salary_panel.base_rate")}</span>
+                  <span className="mono">{fmtCzk(baseRate)}/h</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--subtext)", fontSize: 13 }}>Weekend rate</span>
+                  <span className="mono">{fmtCzk(weekendRate)}/h</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 4 }}>
+                  <span>{t("outcome.salary_panel.calculated_salary")}</span>
+                  <span className="mono">{fmtCzk(totalWages)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                  <button type="button" className="btn btn-primary" onClick={handleRecordSalary} disabled={payingSalary}>
+                    {payingSalary ? t("staff_role.recording") : t("staff_role.record_salary")}
+                  </button>
+                </div>
               </div>
             </div>
-            <div>
-              <div className="form-label">{t("staff_role.shift_note")}</div>
-              <input className="form-input" placeholder={t("staff_role.shift_placeholder")} value={form.note} onChange={(e) => setForm(p => ({...p, note: e.target.value}))} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
-              {editingId && <button type="button" className="btn btn-ghost" onClick={handleCancelEdit}>Cancel</button>}
-              <button type="submit" className="btn btn-primary" disabled={saving}>
-                {saving ? t("staff_role.saving") : (editingId ? t("staff_role.update_shift") : `+ ${t("staff_role.add_shift")}`)}
+
+            {/* Nav cards */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <button
+                type="button"
+                className="panel"
+                onClick={() => setTab("shifts")}
+                style={{ cursor: "pointer", textAlign: "left", border: "1px solid var(--border)", background: "var(--card)", transition: "border-color 0.15s" }}
+              >
+                <div className="panel-header" style={{ pointerEvents: "none" }}>
+                  <div>
+                    <div className="panel-title">Shifts</div>
+                    <div className="panel-meta">
+                      {timesheets.length} total · {pendingCount} pending · {acceptedTimesheets.length} accepted
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 22, color: "var(--accent)", opacity: 0.7 }}>→</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="panel"
+                onClick={() => setTab("documents")}
+                style={{ cursor: "pointer", textAlign: "left", border: "1px solid var(--border)", background: "var(--card)", transition: "border-color 0.15s" }}
+              >
+                <div className="panel-header" style={{ pointerEvents: "none" }}>
+                  <div>
+                    <div className="panel-title">Salary Reports</div>
+                    <div className="panel-meta">{documents.length} signed document{documents.length !== 1 ? "s" : ""}</div>
+                  </div>
+                  <span style={{ fontSize: 22, color: "var(--accent)", opacity: 0.7 }}>→</span>
+                </div>
               </button>
             </div>
-          </form>
-        </div>
+          </div>
+        </>
+      )}
 
-        <div className="panel staff-role-timesheet-panel">
-          <div className="panel-header" style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div className="panel-title">{t("staff_role.timesheet_log")}</div>
-              <div className="panel-meta">{t("staff_role.entries_count", { count: timesheets.length })}</div>
+      {/* ── SHIFTS TAB ── */}
+      {activeTab === "shifts" && (
+        <div className="two-col staff-role-layout">
+          {/* Add / Edit form */}
+          <div className="quick-form staff-role-sidepanel staff-role-controls-panel">
+            <div ref={formRef} className="panel-title" style={{ marginBottom: 16 }}>
+              {editingId ? t("staff_role.edit_shift") : t("staff_role.add_shift")}
             </div>
-            
-            <div className="timesheet-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div className="filter-group" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span className="form-label" style={{ margin: 0, fontSize: '10px' }}>Sort:</span>
-                <select 
-                  className="form-input" 
-                  style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
-                  value={`${sortBy}-${sortOrder}`}
-                  onChange={(e) => {
-                    const [field, order] = e.target.value.split('-');
-                    setSortBy(field);
-                    setSortOrder(order);
-                  }}
-                >
-                  <option value="date-desc">Date (Newest)</option>
-                  <option value="date-asc">Date (Oldest)</option>
-                  <option value="status-asc">Status</option>
-                </select>
+            <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <div className="form-label">{t("staff_role.shift_date")}</div>
+                <input className="form-input" type="date" value={form.workDate} onChange={(e) => setForm(p => ({ ...p, workDate: e.target.value }))} />
               </div>
-
-              <div className="filter-group" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span className="form-label" style={{ margin: 0, fontSize: '10px' }}>Status:</span>
-                <select 
-                  className="form-input" 
-                  style={{ padding: '4px 8px', fontSize: '12px', width: 'auto' }}
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                >
-                  <option value="all">All</option>
-                  <option value="pending">Pending</option>
-                  <option value="accepted">Accepted</option>
-                  <option value="declined">Declined</option>
-                </select>
+              <div className="form-grid">
+                <div>
+                  <div className="form-label">{t("staff_role.shift_start")}</div>
+                  <input className="form-input" type="time" value={form.startTime} onChange={(e) => setForm(p => ({ ...p, startTime: e.target.value }))} />
+                </div>
+                <div>
+                  <div className="form-label">{t("staff_role.shift_end")}</div>
+                  <input className="form-input" type="time" value={form.endTime} onChange={(e) => setForm(p => ({ ...p, endTime: e.target.value }))} />
+                </div>
               </div>
+              <div>
+                <div className="form-label">{t("staff_role.shift_note")}</div>
+                <input className="form-input" placeholder={t("staff_role.shift_placeholder")} value={form.note} onChange={(e) => setForm(p => ({ ...p, note: e.target.value }))} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                {editingId && <button type="button" className="btn btn-ghost" onClick={handleCancelEdit}>Cancel</button>}
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? t("staff_role.saving") : (editingId ? t("staff_role.update_shift") : `+ ${t("staff_role.add_shift")}`)}
+                </button>
+              </div>
+            </form>
+          </div>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={handleBulkApprove}
-                  title="Accept all past pending shifts"
-                >
+          {/* Timesheet log */}
+          <div className="panel staff-role-timesheet-panel">
+            <div className="panel-header" style={{ display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div className="panel-title">{t("staff_role.timesheet_log")}</div>
+                <div className="panel-meta">{t("staff_role.entries_count", { count: timesheets.length })}</div>
+              </div>
+              <div className="timesheet-controls" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <div className="filter-group" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="form-label" style={{ margin: 0, fontSize: 10 }}>Sort:</span>
+                  <select
+                    className="form-input"
+                    style={{ padding: "4px 8px", fontSize: 12, width: "auto" }}
+                    value={`${sortBy}-${sortOrder}`}
+                    onChange={(e) => { const [f, o] = e.target.value.split("-"); setSortBy(f); setSortOrder(o); }}
+                  >
+                    <option value="date-desc">Date (Newest)</option>
+                    <option value="date-asc">Date (Oldest)</option>
+                    <option value="status-asc">Status</option>
+                  </select>
+                </div>
+                <div className="filter-group" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="form-label" style={{ margin: 0, fontSize: 10 }}>Status:</span>
+                  <select
+                    className="form-input"
+                    style={{ padding: "4px 8px", fontSize: 12, width: "auto" }}
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                  >
+                    <option value="all">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="declined">Declined</option>
+                  </select>
+                </div>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={handleBulkApprove}>
                   Bulk Accept Past
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setIsTimesheetCollapsed((prev) => !prev)}
-                  aria-expanded={!isTimesheetCollapsed}
-                  aria-controls="staff-role-timesheet-log"
-                >
-                  {isTimesheetCollapsed ? t("staff_role.expand_log", { defaultValue: "Expand Log" }) : t("staff_role.collapse_log", { defaultValue: "Collapse Log" })}
-                </button>
               </div>
             </div>
-          </div>
-          
-          <div
-            id="staff-role-timesheet-log"
-            className={`table-wrapper staff-role-timesheet-table ${isTimesheetCollapsed ? "collapsed" : ""}`}
-            hidden={isTimesheetCollapsed}
-            style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '16px' }}
-          >
-            {/* Active / Pending / Declined Shifts */}
-            <div className="shifts-section">
-              <div className="panel-meta" style={{ marginBottom: '12px', color: 'var(--accent)' }}>Active & Pending Shifts</div>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{t("staff_role.headers.date")}</th>
-                    <th>{t("staff_role.headers.start")}</th>
-                    <th>{t("staff_role.headers.end")}</th>
-                    <th>{t("staff_role.headers.hours")}</th>
-                    <th>Status</th>
-                    <th>{t("staff_role.headers.actions")}</th>
-                  </tr>
-                </thead>
-                <tbody className="shift-transition-group">
-                  {nonAcceptedTimesheets.length === 0 ? (
-                    <tr><td colSpan="6" className="empty-state">No pending or active shifts found.</td></tr>
-                  ) : (
-                    nonAcceptedTimesheets.map((entry) => {
-                      const today = new Date().toISOString().slice(0, 10);
-                      const isPast = entry.work_date <= today;
-                      return (
-                        <tr key={entry.id} className="shift-row-transition" style={{ opacity: entry.status === 'pending' ? 0.6 : 1 }}>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 24, padding: 16 }}>
+              {/* Pending / Declined */}
+              <div className="shifts-section">
+                <div className="panel-meta" style={{ marginBottom: 12, color: "var(--accent)" }}>Active & Pending Shifts</div>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>{t("staff_role.headers.date")}</th>
+                      <th>{t("staff_role.headers.start")}</th>
+                      <th>{t("staff_role.headers.end")}</th>
+                      <th>{t("staff_role.headers.hours")}</th>
+                      <th>Status</th>
+                      <th>{t("staff_role.headers.actions")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="shift-transition-group">
+                    {nonAcceptedTimesheets.length === 0 ? (
+                      <tr><td colSpan="6" className="empty-state">No pending or active shifts found.</td></tr>
+                    ) : (
+                      nonAcceptedTimesheets.map((entry) => {
+                        const todayStr = new Date().toISOString().slice(0, 10);
+                        const isPast = entry.work_date <= todayStr;
+                        return (
+                          <tr key={entry.id} className="shift-row-transition" style={{ opacity: entry.status === "pending" ? 0.6 : 1 }}>
+                            <td className="mono">{entry.work_date}</td>
+                            <td className="mono">{formatTime(entry.start_time)}</td>
+                            <td className="mono">{formatTime(entry.end_time)}</td>
+                            <td className="mono" style={{ color: "var(--accent)" }}>{Number(entry.hours || 0).toFixed(2)}</td>
+                            <td>
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                <span className={`pill ${entry.status === "declined" ? "pill-red" : "pill-orange"}`}>
+                                  {entry.status.toUpperCase()}
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="doc-actions">
+                                {!entry.salary_payment_id && (
+                                  <>
+                                    {entry.status === "pending" && isPast && (
+                                      <>
+                                        <button className="pay-btn" onClick={() => handleUpdateStatus(entry.id, "accepted")}>Accept</button>
+                                        <button className="pay-btn" onClick={() => handleUpdateStatus(entry.id, "declined")}>Decline</button>
+                                      </>
+                                    )}
+                                    <button className="pay-btn" onClick={() => handleEdit(entry)}>{t("staff.actions.edit")}</button>
+                                    <button className="pay-btn" onClick={() => handleDelete(entry.id)}>{t("common.delete")}</button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Accepted */}
+              <div className="shifts-section approved-shifts-container">
+                <div className="panel-meta" style={{ marginBottom: 12, color: "var(--green)" }}>Accepted Shifts (Ready for Payroll)</div>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>{t("staff_role.headers.date")}</th>
+                      <th>{t("staff_role.headers.start")}</th>
+                      <th>{t("staff_role.headers.end")}</th>
+                      <th>{t("staff_role.headers.hours")}</th>
+                      <th>Status</th>
+                      <th>{t("staff_role.headers.actions")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="shift-transition-group">
+                    {acceptedTimesheets.length === 0 ? (
+                      <tr><td colSpan="6" className="empty-state">No accepted shifts yet.</td></tr>
+                    ) : (
+                      acceptedTimesheets.map((entry) => (
+                        <tr key={entry.id} className="shift-row-transition approved-shift-row">
                           <td className="mono">{entry.work_date}</td>
                           <td className="mono">{formatTime(entry.start_time)}</td>
                           <td className="mono">{formatTime(entry.end_time)}</td>
-                          <td className="mono" style={{ color: "var(--accent)" }}>
-                            {Number(entry.hours || 0).toFixed(2)}
-                          </td>
+                          <td className="mono" style={{ color: "var(--green)" }}>{Number(entry.hours || 0).toFixed(2)}</td>
                           <td>
-                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                              <span className={`pill ${entry.status === 'declined' ? 'pill-red' : 'pill-orange'}`}>
-                                {entry.status.toUpperCase()}
-                              </span>
-                              {entry.salary_payment_id && (
-                                <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--subtext)', fontSize: '9px' }}>
-                                  PAID
-                                </span>
+                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              {entry.status === "paid" ? (
+                                <span className="pill" style={{ background: "var(--bg-card)", color: "var(--subtext)", border: "1px solid var(--border)" }}>PAID</span>
+                              ) : (
+                                <span className="pill pill-green">{entry.status.toUpperCase()}</span>
+                              )}
+                              {!entry.salary_payment_id && entry.status === "accepted" && (
+                                <span className="pill" style={{ background: "var(--bg-card)", color: "var(--accent)", fontSize: 9, border: "1px solid var(--accent)" }}>UNPAID</span>
                               )}
                             </div>
                           </td>
                           <td>
                             <div className="doc-actions">
-                              {!entry.salary_payment_id && (
+                              {!entry.salary_payment_id && entry.status !== "paid" && (
                                 <>
-                                  {entry.status === 'pending' && isPast && (
-                                    <>
-                                      <button className="pay-btn" onClick={() => handleUpdateStatus(entry.id, 'accepted')}>Accept</button>
-                                      <button className="pay-btn" onClick={() => handleUpdateStatus(entry.id, 'declined')}>Decline</button>
-                                    </>
-                                  )}
                                   <button className="pay-btn" onClick={() => handleEdit(entry)}>{t("staff.actions.edit")}</button>
                                   <button className="pay-btn" onClick={() => handleDelete(entry.id)}>{t("common.delete")}</button>
                                 </>
@@ -741,81 +825,89 @@ export default function StaffRolePage() {
                             </div>
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Accepted Shifts */}
-            <div className="shifts-section approved-shifts-container">
-              <div className="panel-meta" style={{ marginBottom: '12px', color: 'var(--green)' }}>Accepted Shifts (Ready for Payroll)</div>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{t("staff_role.headers.date")}</th>
-                    <th>{t("staff_role.headers.start")}</th>
-                    <th>{t("staff_role.headers.end")}</th>
-                    <th>{t("staff_role.headers.hours")}</th>
-                    <th>Status</th>
-                    <th>{t("staff_role.headers.actions")}</th>
-                  </tr>
-                </thead>
-                <tbody className="shift-transition-group">
-                  {acceptedTimesheets.length === 0 ? (
-                    <tr><td colSpan="6" className="empty-state">No accepted shifts yet.</td></tr>
-                  ) : (
-                    acceptedTimesheets.map((entry) => (
-                      <tr key={entry.id} className="shift-row-transition approved-shift-row">
-                        <td className="mono">{entry.work_date}</td>
-                        <td className="mono">{formatTime(entry.start_time)}</td>
-                        <td className="mono">{formatTime(entry.end_time)}</td>
-                        <td className="mono" style={{ color: "var(--green)" }}>
-                          {Number(entry.hours || 0).toFixed(2)}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                            {entry.status === 'paid' ? (
-                              <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--subtext)', border: '1px solid var(--border)' }}>
-                                PAID
-                              </span>
-                            ) : (
-                              <span className="pill pill-green">
-                                {entry.status.toUpperCase()}
-                              </span>
-                            )}
-                            {!entry.salary_payment_id && entry.status === 'accepted' && (
-                              <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--accent)', fontSize: '9px', border: '1px solid var(--accent)' }}>
-                                UNPAID
-                              </span>
-                            )}
-                            {entry.salary_payment_id && entry.status !== 'paid' && (
-                              <span className="pill" style={{ background: 'var(--bg-card)', color: 'var(--subtext)', fontSize: '9px' }}>
-                                PAID
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          <div className="doc-actions">
-                            {!entry.salary_payment_id && entry.status !== 'paid' && (
-                              <>
-                                <button className="pay-btn" onClick={() => handleEdit(entry)}>{t("staff.actions.edit")}</button>
-                                <button className="pay-btn" onClick={() => handleDelete(entry.id)}>{t("common.delete")}</button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* ── DOCUMENTS TAB ── */}
+      {activeTab === "documents" && (
+        <div className="panel">
+          <div className="panel-header" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div className="panel-title">{t("staff_role.salary_documents")}</div>
+              <div className="panel-meta">{t("staff_role.signed_reports")}</div>
+            </div>
+            <div className="doc-filter-controls">
+              <input
+                type="date"
+                value={documentFilter.from}
+                onChange={(e) => setDocumentFilter((prev) => ({ ...prev, from: e.target.value }))}
+                className="form-input doc-filter-input"
+              />
+              <span className="doc-filter-separator">-</span>
+              <input
+                type="date"
+                value={documentFilter.to}
+                onChange={(e) => setDocumentFilter((prev) => ({ ...prev, to: e.target.value }))}
+                className="form-input doc-filter-input"
+              />
+              <button className="btn btn-ghost" onClick={() => loadDocuments(documentFilter.from, documentFilter.to)}>
+                {t("staff_role.search")}
+              </button>
+            </div>
+          </div>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t("staff_role.headers_docs.period")}</th>
+                  <th>{t("staff_role.headers_docs.signed_at")}</th>
+                  <th>{t("staff_role.headers_docs.signer")}</th>
+                  <th>{t("staff_role.headers_docs.file")}</th>
+                  <th>{t("staff_role.headers_docs.action")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {documentsLoading && [...Array(3)].map((_, idx) => (
+                  <tr key={idx}>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                    <td><div className="skeleton-line" /></td>
+                  </tr>
+                ))}
+                {!documentsLoading && documentsError && (
+                  <tr><td colSpan={5} className="empty-state">{documentsError}</td></tr>
+                )}
+                {!documentsLoading && !documentsError && documents.length === 0 && (
+                  <tr><td colSpan={5} className="empty-state">{t("staff_role.no_documents")}</td></tr>
+                )}
+                {!documentsLoading && !documentsError && documents.map((doc) => (
+                  <tr key={doc.id}>
+                    <td className="mono">{doc.period_from || "—"} → {doc.period_to || "—"}</td>
+                    <td className="mono">{doc.signed_at ? new Date(doc.signed_at).toLocaleString() : "—"}</td>
+                    <td>{doc.signer_name || "—"}</td>
+                    <td className="mono doc-filename">{doc.file_name || t("staff_role.file_default")}</td>
+                    <td>
+                      <div className="doc-actions">
+                        <button className="pay-btn" onClick={() => previewDocument(doc.id)}>{t("staff_role.view")}</button>
+                        <button className="pay-btn" onClick={() => downloadDocument(doc.id, doc.file_name)}>{t("staff_role.download")}</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useApi } from "../api/client.js";
+import { formatMoney as formatCurrency } from "../utils/currency.js";
 
 const emptyForm = {
   firstName: "",
@@ -23,8 +24,11 @@ const computeRange = (p) => {
     from = to;
   } else if (p === "week") {
     const d = new Date(to);
-    d.setUTCDate(d.getUTCDate() - 6);
+    const dow = d.getUTCDay();
+    d.setUTCDate(d.getUTCDate() - (dow + 6) % 7); // Monday
     from = d.toISOString().slice(0, 10);
+    const sun = new Date(d); sun.setUTCDate(sun.getUTCDate() + 6);
+    return { from, to: sun.toISOString().slice(0, 10) };
   } else if (p === "month") {
     const d = new Date(to);
     from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
@@ -63,8 +67,6 @@ export default function StaffPage() {
   const initialPeriod = localStorage.getItem("globalPeriod") || "month";
   const [period, setPeriod] = useState(initialPeriod);
   const [stats, setStats] = useState(null);
-  const [showDebt, setShowDebt] = useState(true);
-
   const loadStats = useCallback(async (p) => {
     const { from, to } = computeRange(p);
     try {
@@ -98,14 +100,13 @@ export default function StaffPage() {
     }
   };
 
-  const loadStaff = async (role = roleFilter, query = search, withDebt = showDebt) => {
+  const loadStaff = async (role = roleFilter, query = search) => {
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
       if (role) params.append("role", role);
       if (query) params.append("q", query);
-      params.append("with_debt", withDebt ? "true" : "false");
       const items = await api.get(`/staff?${params.toString()}`);
       setStaff(items);
     } catch (err) {
@@ -335,8 +336,6 @@ export default function StaffPage() {
     }
   };
 
-  const formatCurrency = (value) =>
-    Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" });
 
   return (
     <>
@@ -373,18 +372,6 @@ export default function StaffPage() {
           </div>
           <div className="topbar-actions">
             <input className="form-input" placeholder={t("common.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={showDebt}
-                onChange={(e) => {
-                  const val = e.target.checked;
-                  setShowDebt(val);
-                  loadStaff(roleFilter, search, val);
-                }}
-              />
-              <span>{t("staff.show_debt", "Include debt")}</span>
-            </label>
             <button className="btn btn-ghost" onClick={() => navigate("/staff/doctors-report")}>Patient Report</button>
             <button className="btn btn-primary" onClick={openAddForm}>+ {t("staff.add_staff")}</button>
           </div>
@@ -425,10 +412,10 @@ export default function StaffPage() {
                     </span>
                   </td>
                   <td className="mono" data-label={t("staff.table_meta.base_commission")}>
-                    {member.role === 'doctor' ? `${((member.commission_rate || 0) * 100).toFixed(1)}%` : (member.base_salary || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    {member.role === 'doctor' ? `${((member.commission_rate || 0) * 100).toFixed(1)}%` : formatCurrency(member.base_salary)}
                   </td>
                   <td className="mono" style={{ color: (member.unpaid_amount || 0) < 0 ? "var(--red)" : "var(--green)" }} data-label={t("staff.table_meta.total_earned")}>
-                    {(member.unpaid_amount || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                    {formatCurrency(member.unpaid_amount)}
                   </td>
                   <td data-label={t("staff.table_meta.actions")}>
                     <div style={{ display: "flex", gap: "8px" }}>
@@ -454,19 +441,19 @@ export default function StaffPage() {
                 <div style={{ display: 'grid', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>{t("staff.pay_modal.base_salary")}:</span>
-                        <span className="mono">{(payModal.estimate.base_salary || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                        <span className="mono">{formatCurrency(payModal.estimate.base_salary)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>{t("staff.pay_modal.commission")}:</span>
-                        <span className="mono">{(payModal.estimate.commission_part || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                        <span className="mono">{formatCurrency(payModal.estimate.commission_part)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>{t("staff.pay_modal.adjustments")}:</span>
-                        <span className="mono">{(payModal.estimate.adjustments || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                        <span className="mono">{formatCurrency(payModal.estimate.adjustments)}</span>
                     </div>
                     <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                         <span>{t("staff.pay_modal.total")}:</span>
-                        <span className="mono" style={{ color: 'var(--green)' }}>{(payModal.estimate.estimated_total || 0).toLocaleString(undefined, { style: "currency", currency: "CZK" })}</span>
+                        <span className="mono" style={{ color: 'var(--green)' }}>{formatCurrency(payModal.estimate.estimated_total)}</span>
                     </div>
                 </div>
             </div>

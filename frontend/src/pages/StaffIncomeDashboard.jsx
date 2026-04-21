@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Line } from "react-chartjs-2";
 import {
@@ -11,6 +12,7 @@ import {
   Legend,
 } from "chart.js";
 import { useApi } from "../api/client.js";
+import { formatMoney } from "../utils/currency.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -25,6 +27,7 @@ function getChartColors() {
 }
 
 export default function StaffIncomeDashboard() {
+  const { t } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
   const storedPeriod = localStorage.getItem("globalPeriod") || "month";
@@ -68,7 +71,7 @@ export default function StaffIncomeDashboard() {
       );
       setData(dashboard);
     } catch (err) {
-      setError(err.message || "Unable to load income data");
+      setError(err.message || t("my_income_dashboard.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -81,8 +84,11 @@ export default function StaffIncomeDashboard() {
     if (selectedPeriod === "day") {
       fromDate = new Date(toDate);
     } else if (selectedPeriod === "week") {
+      const dow = toDate.getUTCDay();
       fromDate = new Date(toDate);
-      fromDate.setUTCDate(fromDate.getUTCDate() - 6);
+      fromDate.setUTCDate(fromDate.getUTCDate() - (dow + 6) % 7);
+      const sunday = new Date(fromDate); sunday.setUTCDate(sunday.getUTCDate() + 6);
+      toDate.setTime(sunday.getTime());
     } else if (selectedPeriod === "month") {
       fromDate = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
     } else if (selectedPeriod === "year") {
@@ -148,7 +154,7 @@ export default function StaffIncomeDashboard() {
       labels,
       datasets: [
         {
-          label: "Total Income",
+          label: t("my_income_dashboard.total_pay"),
           data: totalsPerDay,
           borderColor: "var(--accent)",
           backgroundColor: "rgba(249, 115, 22, 0.1)",
@@ -163,7 +169,7 @@ export default function StaffIncomeDashboard() {
   const handleExportCsv = () => {
     if (!data) return;
     const lines = [];
-    lines.push("Date,Hours,Regular hours,Overtime hours,Total income");
+    lines.push(`${t("my_income_dashboard.col_date")},Hours,${t("my_income_dashboard.regular")},${t("my_income_dashboard.overtime")},${t("my_income_dashboard.total_pay")}`);
     perDay.forEach((d) => {
       const regular = d.regular_hours || 0;
       const overtime = d.overtime_hours || 0;
@@ -198,57 +204,57 @@ export default function StaffIncomeDashboard() {
     <>
       <div className="panel">
         <div className="panel-header">
-          <h2>My Income Dashboard</h2>
+          <h2>{t("my_income_dashboard.title")}</h2>
           <div className="date-range-selector">
             <div className="form-group">
-              <label htmlFor="from-date">From</label>
+              <label htmlFor="from-date">{t("my_income_dashboard.from")}</label>
               <input id="from-date" className="form-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             </div>
             <div className="form-group">
-              <label htmlFor="to-date">To</label>
+              <label htmlFor="to-date">{t("my_income_dashboard.to")}</label>
               <input id="to-date" className="form-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
             <button className="button" type="button" onClick={handleApplyRange} disabled={loading}>
-              {loading ? "Loading..." : "Apply"}
+              {loading ? t("my_income_dashboard.loading") : t("my_income_dashboard.apply")}
             </button>
           </div>
           <div className="button-group">
             <button className="button-outline" type="button" onClick={handleExportCsv} disabled={!data}>
-              Export CSV
+              {t("my_income_dashboard.export_csv")}
             </button>
             <button className="button-outline" type="button" onClick={handlePrintPdf} disabled={!data}>
-              Print PDF
+              {t("my_income_dashboard.print_pdf")}
             </button>
           </div>
         </div>
       </div>
 
-      {error && <div className="form-error">SYSTEM ERROR: {error}</div>}
+      {error && <div className="form-error">{t("my_income_dashboard.system_error", { error })}</div>}
 
       {data && (
         <>
           <div className="stats-grid">
             <div className="stat-card">
-              <h3>Employment</h3>
+              <h3>{t("my_income_dashboard.employment")}</h3>
               <p className="stat-value-main">{data.staff.role}</p>
-              <p className="stat-value-sub">Since {data.staff.employment_start_date}</p>
+              <p className="stat-value-sub">{t("my_income_dashboard.since", { date: data.staff.employment_start_date })}</p>
             </div>
             <div className="stat-card">
-              <h3>Total Hours</h3>
+              <h3>{t("my_income_dashboard.total_hours")}</h3>
               <p className="stat-value-main">{totals.total_hours.toFixed(2)} h</p>
               <div className="stat-value-split">
-                <span>Regular: {totals.regular_hours.toFixed(2)}</span>
-                <span>Overtime: {totals.overtime_hours.toFixed(2)}</span>
+                <span>{t("my_income_dashboard.regular")}: {totals.regular_hours.toFixed(2)}</span>
+                <span>{t("my_income_dashboard.overtime")}: {totals.overtime_hours.toFixed(2)}</span>
               </div>
             </div>
             <div className="stat-card">
-              <h3>Total Pay</h3>
+              <h3>{t("my_income_dashboard.total_pay")}</h3>
               <p className="stat-value-main accent">
-                {salary.total_pay.toLocaleString(undefined, { style: "currency", currency: "CZK" })}
+                {formatMoney(salary.total_pay)}
               </p>
               <div className="stat-value-split">
-                <span>Base: {salary.base_pay.toFixed(0)}</span>
-                <span>Overtime: {salary.overtime_pay.toFixed(0)}</span>
+                <span>{t("my_income_dashboard.base")}: {salary.base_pay.toFixed(0)}</span>
+                <span>{t("my_income_dashboard.overtime")}: {salary.overtime_pay.toFixed(0)}</span>
               </div>
             </div>
           </div>
@@ -256,11 +262,11 @@ export default function StaffIncomeDashboard() {
           <div className="two-col">
             <div className="panel">
               <div className="panel-header">
-                <h2>Income Trend</h2>
+                <h2>{t("my_income_dashboard.income_trend")}</h2>
               </div>
               <div className="panel-body" style={{ height: "300px" }}>
                 {perDay.length === 0 ? (
-                  <div className="empty-state">No hours logged for this period</div>
+                  <div className="empty-state">{t("my_income_dashboard.no_hours")}</div>
                 ) : (
                   <Line data={incomeChartData} options={chartOptions} />
                 )}
@@ -268,28 +274,28 @@ export default function StaffIncomeDashboard() {
             </div>
             <div className="panel">
               <div className="panel-header">
-                <h2>Payment History</h2>
+                <h2>{t("my_income_dashboard.payment_history")}</h2>
               </div>
               <div className="panel-body">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Date</th>
-                      <th>Amount</th>
-                      <th>Note</th>
+                      <th>{t("my_income_dashboard.col_date")}</th>
+                      <th>{t("my_income_dashboard.col_amount")}</th>
+                      <th>{t("my_income_dashboard.col_note")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {payments.map((p) => (
                       <tr key={p.id}>
                         <td>{p.payment_date}</td>
-                        <td className="accent">{p.amount.toLocaleString(undefined, { style: "currency", currency: "CZK" })}</td>
+                        <td className="accent">{formatMoney(p.amount)}</td>
                         <td>{p.note || "-"}</td>
                       </tr>
                     ))}
                     {payments.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="empty-state">No payments recorded</td>
+                        <td colSpan={3} className="empty-state">{t("my_income_dashboard.no_payments")}</td>
                       </tr>
                     )}
                   </tbody>
